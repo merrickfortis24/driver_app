@@ -38,7 +38,7 @@ if (!in_array($status, $allowed, true)) {
   http_response_code(400); echo json_encode(['error'=>'invalid_status']); exit;
 }
 
-// map prototype -> DB order_status
+// map prototype -> DB order_status AND persist Driver_Status + assignment
 $map = [
   'assigned'   => 'Pending',
   'accepted'   => 'Processing',
@@ -49,14 +49,30 @@ $map = [
 ];
 $dbStatus = $map[$status];
 
-// update
 $db->beginTransaction();
 try {
-  $upd = $db->prepare("UPDATE orders SET order_status=? WHERE Order_ID=?");
-  $upd->execute([$dbStatus, $orderId]);
+  // ensure order exists
+  $chk = $db->prepare("SELECT Order_ID, Assigned_Driver_ID FROM orders WHERE Order_ID=? FOR UPDATE");
+  $chk->execute([$orderId]);
+  $order = $chk->fetch(PDO::FETCH_ASSOC);
+  if (!$order) { throw new RuntimeException('order_not_found'); }
+
+  // assign driver on first accept
+  if (in_array($status, ['accepted','on_the_way','picked_up','delivered'], true)) {
+    $assign = $db->prepare("UPDATE orders SET Assigned_Driver_ID = COALESCE(Assigned_Driver_ID, ?) WHERE Order_ID=?");
+    $assign->execute([$driver['Driver_ID'], $orderId]);
+  }
+
+  // update order status + driver status
+  $upd = $db->prepare("UPDATE orders SET order_status=?, Driver_Status=? WHERE Order_ID=?");
+  $upd->execute([$dbStatus, $status, $orderId]);
+
+  if ($status === 'picked_up') {
+    $pu = $db->prepare("UPDATE orders SET Picked_Up_At = NOW() WHERE Order_ID=?");
+    $pu->execute([$orderId]);
+  }
 
   if ($status === 'delivered') {
-    // stamp payment receiver and notify (simple demo)
     $stamp = $db->prepare("UPDATE orders
                            SET payment_received_at=NOW(), payment_received_by=?
                            WHERE Order_ID=?");

@@ -3,8 +3,8 @@ import 'dart:io' show Platform;
 class API {
   // Use 10.0.2.2 when running on Android emulator to reach host machine
   static String get hostConnectBase => Platform.isAndroid
-      ? 'http://10.0.2.2/api_drivers'
-      : 'http://192.168.1.8/api_drivers';
+      ? 'http://10.0.2.2/driver_app/api_drivers'
+      : 'http://192.168.1.8/driver_app/api_drivers';
 
   static String get hostConnectDriver => "$hostConnectBase/driver";
 
