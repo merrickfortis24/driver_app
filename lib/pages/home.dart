@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 import '../models/delivery.dart';
 import '../services/delivery_api.dart';
 import 'login.dart';
+import 'map_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -11,6 +15,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  final _peso = NumberFormat.currency(locale: 'en_PH', symbol: '₱');
   final _api = DeliveryApi.instance;
 
   List<DeliveryOrder> _orders = [];
@@ -153,90 +158,113 @@ class _HomePageState extends State<HomePage> {
       elevation: 0,
       color: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x11000000),
-              blurRadius: 8,
-              offset: Offset(0, 2),
-            ),
-          ],
-        ),
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: .12),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: color.withValues(alpha: .5)),
-                  ),
-                  child: Text(
-                    _statusText(o.status),
-                    style: TextStyle(color: color, fontWeight: FontWeight.w600),
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  'Total: \$${o.totalAmount.toStringAsFixed(2)}',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              o.customerName,
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-            ),
-            const SizedBox(height: 6),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.place_outlined, size: 16, color: Colors.grey),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    o.deliveryAddress,
-                    style: const TextStyle(color: Colors.black87),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            if (o.deliveryInstructions != null &&
-                o.deliveryInstructions!.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(
-                o.deliveryInstructions!,
-                style: const TextStyle(color: Colors.grey),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        // Privacy: don't allow opening map for delivered orders (shown in History)
+        onTap: o.status == OrderStatus.delivered
+            ? null
+            : () {
+                Navigator.of(
+                  context,
+                ).push(MaterialPageRoute(builder: (_) => MapPage(order: o)));
+              },
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x11000000),
+                blurRadius: 8,
+                offset: Offset(0, 2),
               ),
             ],
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: -8,
-              children: o.items
-                  .map(
-                    (i) => Chip(
-                      label: Text('${i.quantity} x ${i.name}'),
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
                     ),
-                  )
-                  .toList(),
-            ),
-            const SizedBox(height: 8),
-            Row(children: [..._buildActions(o)]),
-          ],
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: .12),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: color.withValues(alpha: .5)),
+                    ),
+                    child: Text(
+                      _statusText(o.status),
+                      style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    'Total: ${_peso.format(o.totalAmount)}',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                o.customerName,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.place_outlined,
+                    size: 16,
+                    color: Colors.grey,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      o.deliveryAddress,
+                      style: const TextStyle(color: Colors.black87),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              if (o.deliveryInstructions != null &&
+                  o.deliveryInstructions!.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  o.deliveryInstructions!,
+                  style: const TextStyle(color: Colors.grey),
+                ),
+              ],
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: -8,
+                children: o.items
+                    .map(
+                      (i) => Chip(
+                        label: Text('${i.quantity} x ${i.name}'),
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    )
+                    .toList(),
+              ),
+              const SizedBox(height: 8),
+              Row(children: [..._buildActions(o)]),
+              const SizedBox(height: 8),
+              _ArrivalActions(order: o),
+            ],
+          ),
         ),
       ),
     );
@@ -599,6 +627,128 @@ class _StatCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ArrivalActions extends StatefulWidget {
+  final DeliveryOrder order;
+  const _ArrivalActions({required this.order});
+
+  @override
+  State<_ArrivalActions> createState() => _ArrivalActionsState();
+}
+
+class _ArrivalActionsState extends State<_ArrivalActions> {
+  bool _checking = false;
+  bool _arrived = false;
+  String? _err;
+  bool get _disabledForPrivacy => widget.order.status == OrderStatus.delivered;
+
+  Future<void> _check() async {
+    setState(() {
+      _checking = true;
+      _err = null;
+    });
+    try {
+      final lat = widget.order.latitude;
+      final lng = widget.order.longitude;
+      if (lat == null || lng == null) {
+        setState(() {
+          _err = 'No destination coordinates';
+        });
+        return;
+      }
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        setState(() {
+          _err = 'Location permission denied';
+        });
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.best,
+      );
+      final d = Geolocator.distanceBetween(
+        pos.latitude,
+        pos.longitude,
+        lat,
+        lng,
+      );
+      setState(() {
+        _arrived = d <= 60;
+      });
+      if (!_arrived && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('You are ${d.toStringAsFixed(0)}m away.')),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _err = 'Location error';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _checking = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _call() async {
+    final p = widget.order.customerPhone.replaceAll(RegExp(r'[^0-9+]'), '');
+    final uri = 'tel:$p';
+    try {
+      await launchUrlString(uri);
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_err != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(
+              _err!,
+              style: const TextStyle(color: Colors.red, fontSize: 12),
+            ),
+          ),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: (_checking || _disabledForPrivacy) ? null : _check,
+                icon: _checking
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.my_location_outlined),
+                label: Text(_arrived ? 'Arrived' : 'I am here'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: (_arrived && !_disabledForPrivacy) ? _call : null,
+                icon: const Icon(Icons.call),
+                label: Text(
+                  _arrived ? widget.order.customerPhone : 'Call customer',
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

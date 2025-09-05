@@ -1,10 +1,7 @@
-import 'dart:io' show Platform;
-
 class API {
-  // Use 10.0.2.2 when running on Android emulator to reach host machine
-  static String get hostConnectBase => Platform.isAndroid
-      ? 'http://10.0.2.2/driver_app/api_drivers'
-      : 'http://192.168.1.8/driver_app/api_drivers';
+  // Fixed to your PC's LAN IP so physical Android devices can reach XAMPP
+  static const String hostConnectBase =
+      'http://192.168.1.6/naitsa/driver_app/api_drivers';
 
   static String get hostConnectDriver => "$hostConnectBase/driver";
 

@@ -72,12 +72,18 @@ class DeliveryApi {
             ),
           )
           .toList();
+      final lat = double.tryParse((e['lat'] ?? e['latitude'] ?? '').toString());
+      final lng = double.tryParse(
+        (e['lng'] ?? e['lon'] ?? e['longitude'] ?? '').toString(),
+      );
       return DeliveryOrder(
         id: (e['id'] ?? '').toString(),
         customerName: (e['customerName'] ?? '').toString(),
         customerPhone: (e['customerPhone'] ?? '').toString(),
         deliveryAddress: (e['deliveryAddress'] ?? '').toString(),
         deliveryInstructions: (e['deliveryInstructions'])?.toString(),
+        latitude: lat,
+        longitude: lng,
         items: items,
         totalAmount:
             double.tryParse((e['totalAmount'] ?? '0').toString()) ?? 0.0,

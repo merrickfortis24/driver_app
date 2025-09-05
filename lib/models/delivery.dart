@@ -20,6 +20,9 @@ class DeliveryOrder {
   final String customerPhone;
   final String deliveryAddress;
   final String? deliveryInstructions;
+  // Optional geocoordinates for the delivery destination
+  final double? latitude;
+  final double? longitude;
   final List<DeliveryItem> items;
   double totalAmount;
   final String estimatedTime;
@@ -35,6 +38,8 @@ class DeliveryOrder {
     required this.customerPhone,
     required this.deliveryAddress,
     this.deliveryInstructions,
+    this.latitude,
+    this.longitude,
     required this.items,
     required this.totalAmount,
     required this.estimatedTime,
