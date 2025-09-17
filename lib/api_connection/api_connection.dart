@@ -4,10 +4,11 @@ class API {
   // Presets:
   // - Hostinger (production): HTTPS is recommended and avoids Android cleartext issues
   static const String _prodBase = 'https://naitsa.online/api_drivers';
-  // - Android emulator to local XAMPP (use 10.0.2.2 as host)
+  // - Android emulator to local XAMPP
+  //   Using LAN IP since 10.0.2.2 did not respond in this environment
   //   Local PHP APIs are in /naitsa/driver_app/api_drivers in this workspace
   static const String _emulatorBase =
-      'http://10.0.2.2/naitsa/driver_app/api_drivers';
+      'http://192.168.1.8/naitsa/driver_app/api_drivers';
   // - Physical device on same Wi‑Fi to local XAMPP (replace with your PC's LAN IP)
   // ignore: unused_field
   static const String _lanBase =
