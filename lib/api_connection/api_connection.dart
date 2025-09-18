@@ -8,11 +8,11 @@ class API {
   //   Using LAN IP since 10.0.2.2 did not respond in this environment
   //   Local PHP APIs are in /naitsa/driver_app/api_drivers in this workspace
   static const String _emulatorBase =
-      'http://192.168.1.8/naitsa/driver_app/api_drivers';
+      'http://10.0.2.2/naitsa/driver_app/api_drivers';
   // - Physical device on same Wi‑Fi to local XAMPP (replace with your PC's LAN IP)
   // ignore: unused_field
   static const String _lanBase =
-      'http://192.168.1.8/naitsa/driver_app/api_drivers';
+      'http://192.168.1.12/naitsa/driver_app/api_drivers';
 
   // Optional override via: flutter run --dart-define=API_BASE=https://example.com/api
   static const String _envBase = String.fromEnvironment(

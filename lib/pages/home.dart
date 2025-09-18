@@ -671,8 +671,10 @@ class _ArrivalActionsState extends State<_ArrivalActions> {
         return;
       }
       final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.best,
-      );
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.best,
+        ),
+      ).timeout(const Duration(seconds: 12));
       final d = Geolocator.distanceBetween(
         pos.latitude,
         pos.longitude,

@@ -114,9 +114,10 @@ class _MapPageState extends State<MapPage> {
       Position pos;
       try {
         pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-          timeLimit: const Duration(seconds: 8),
-        );
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+          ),
+        ).timeout(const Duration(seconds: 8));
       } on TimeoutException {
         final last = await Geolocator.getLastKnownPosition();
         if (last == null) rethrow;
@@ -174,9 +175,10 @@ class _MapPageState extends State<MapPage> {
         }
         try {
           pos = await Geolocator.getCurrentPosition(
-            desiredAccuracy: LocationAccuracy.high,
-            timeLimit: const Duration(seconds: 8),
-          );
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+            ),
+          ).timeout(const Duration(seconds: 8));
         } on TimeoutException {
           final last = await Geolocator.getLastKnownPosition();
           if (last == null) rethrow;
@@ -527,9 +529,10 @@ class _ArrivalBarState extends State<_ArrivalBar> {
       }
 
       final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 12),
-      );
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      ).timeout(const Duration(seconds: 12));
 
       final distance = Geolocator.distanceBetween(
         pos.latitude,
