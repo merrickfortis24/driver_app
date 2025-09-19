@@ -9,6 +9,15 @@ $db = (new Database())->openCon();
 $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 header('Content-Type: application/json');
 
+// Debug: log incoming Authorization header for troubleshooting (dev only)
+try {
+  $dbg_headers = function_exists('getallheaders') ? getallheaders() : [];
+  $dbg_auth = $dbg_headers['Authorization'] ?? $dbg_headers['authorization'] ?? '';
+  error_log('orders/debug auth header: ' . json_encode(['auth' => $dbg_auth, 'remote' => ($_SERVER['REMOTE_ADDR'] ?? '')]));
+} catch (Throwable $e) {
+  // ignore debug logging failures
+}
+
 function bearerToken(): ?string {
   $headers = function_exists('getallheaders') ? getallheaders() : [];
   $auth = $headers['Authorization'] ?? $headers['authorization'] ?? '';
@@ -27,22 +36,76 @@ if (!$driver) { http_response_code(401); echo json_encode(['error'=>'invalid_tok
 
 // fetch orders (no assignment field in DB yet -> show Pending/Processing)
 
-$sql = "SELECT o.Order_ID, o.Order_Date, o.Order_Amount, o.Street, o.Barangay, o.City,
-         o.Contact_Number, o.order_status, o.Driver_Status, o.payment_received_at,
-         o.payment_received_by, o.Assigned_Driver_ID, o.Picked_Up_At, c.Customer_Name,
-         o.customer_lat, o.customer_lng
+$colsOrders = [];
+$colsAddress = [];
+// Helper: get columns for a table
+$getCols = function($table) use ($db) {
+  $st = $db->prepare("SHOW COLUMNS FROM `" . str_replace('`','', $table) . "`");
+  try {
+    $st->execute();
+    $res = $st->fetchAll(PDO::FETCH_COLUMN, 0);
+    return $res ?: [];
+  } catch (Throwable $e) {
+    return [];
+  }
+};
+
+$colsOrders = $getCols('orders');
+$colsAddress = $getCols('order_address');
+
+// Build select list using existing columns or NULL aliases
+$select = [];
+// always include these base fields if present or alias them to NULL
+$want = [
+  'Order_ID','Order_Date','Order_Amount','Contact_Number','order_status','Driver_Status',
+  'payment_received_at','payment_received_by','Assigned_Driver_ID','Picked_Up_At',
+  'customer_lat','customer_lng'
+];
+foreach ($want as $w) {
+  if (in_array($w, $colsOrders, true)) {
+    $select[] = "o.`$w`";
+  } else {
+    $select[] = "NULL AS `$w`";
+  }
+}
+
+// address fields may be in orders or in order_address table
+$addrWant = ['Street','Barangay','City'];
+foreach ($addrWant as $a) {
+  if (in_array($a, $colsOrders, true)) {
+    $select[] = "o.`$a`";
+  } elseif (in_array($a, $colsAddress, true)) {
+    $select[] = "addr.`$a`";
+  } else {
+    $select[] = "NULL AS `$a`";
+  }
+}
+
+// customer name from customer table
+if (in_array('Customer_ID', $colsOrders, true)) {
+  $select[] = "c.Customer_Name";
+} else {
+  $select[] = "NULL AS Customer_Name";
+}
+
+$selectList = implode(', ', $select);
+
+$sql = "SELECT $selectList
   FROM orders o
-  JOIN customer c ON c.Customer_ID = o.Customer_ID
-  -- Prefer delivery orders; also include any with coordinates (even if Pickup)
+  LEFT JOIN order_address addr ON addr.Order_ID = o.Order_ID
+  LEFT JOIN customer c ON c.Customer_ID = o.Customer_ID
   WHERE (
       o.order_status IN ('Pending','Processing','Ready to deliver','On the way','Delivered')
     )
     AND (
-      o.Street IS NOT NULL OR o.City IS NOT NULL OR o.Contact_Number IS NOT NULL
-      OR (o.customer_lat IS NOT NULL AND o.customer_lng IS NOT NULL)
+      (" . (in_array('Street', $colsOrders, true) || in_array('Street', $colsAddress, true) ? "(o.Street IS NOT NULL OR addr.Street IS NOT NULL) OR " : "") .
+      (in_array('City', $colsOrders, true) || in_array('City', $colsAddress, true) ? "(o.City IS NOT NULL OR addr.City IS NOT NULL) OR " : "") .
+      (in_array('Contact_Number', $colsOrders, true) ? "o.Contact_Number IS NOT NULL OR " : "") .
+      "(o.customer_lat IS NOT NULL AND o.customer_lng IS NOT NULL)
     )
   ORDER BY o.Order_Date DESC
   LIMIT 30";
+
 $orders = $db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 
 // load items for each order

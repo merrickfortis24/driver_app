@@ -38,23 +38,25 @@ try {
         exit;
     }
 
-    // Helper to check if a column exists on a table
-    $hasColumn = function(PDO $pdo, string $table, string $col): bool {
-        try {
-            $chk = $pdo->prepare("SHOW COLUMNS FROM `{$table}` LIKE ?");
-            $chk->execute([$col]);
-            return (bool)$chk->fetch(PDO::FETCH_ASSOC);
-        } catch (Throwable $e) { return false; }
-    };
+    // Determine available columns once (more reliable than repeated SHOW COLUMNS calls)
+    $columns = [];
+    try {
+        $colsStmt = $db->query("SHOW COLUMNS FROM `drivers`");
+        $colsRows = $colsStmt->fetchAll(PDO::FETCH_ASSOC);
+        $columns = array_column($colsRows, 'Field');
+    } catch (Throwable $e) {
+        // If SHOW COLUMNS fails for any reason, fall back to a conservative minimal set
+        error_log('driver/login SHOW COLUMNS failed: ' . $e->getMessage());
+        $columns = ['Driver_ID','Name','Gmail'];
+    }
 
-    // Work with varying schemas: Password_Hash vs Password, token columns optional
-    $hasPwdHash = $hasColumn($db, 'drivers', 'Password_Hash');
-    $hasPwd = $hasColumn($db, 'drivers', 'Password');
+    $hasPwdHash = in_array('Password_Hash', $columns, true);
+    $hasPwd = in_array('Password', $columns, true);
     $cols = ['Driver_ID','Name','Gmail'];
     if ($hasPwdHash) $cols[] = 'Password_Hash';
     if ($hasPwd) $cols[] = 'Password';
-    if ($hasColumn($db, 'drivers', 'Api_Token')) $cols[] = 'Api_Token';
-    if ($hasColumn($db, 'drivers', 'Token_Expires')) $cols[] = 'Token_Expires';
+    if (in_array('Api_Token', $columns, true)) $cols[] = 'Api_Token';
+    if (in_array('Token_Expires', $columns, true)) $cols[] = 'Token_Expires';
 
     $colList = implode(', ', array_map(fn($c)=>"`$c`", $cols));
 
@@ -141,10 +143,10 @@ try {
     if (!$token || $expired) {
         $token = bin2hex(random_bytes(32));
         $expires = date('Y-m-d H:i:s', time() + 30*24*60*60); // 30 days
-        // Update only if columns exist
-        if ($hasColumn($db, 'drivers', 'Api_Token')) {
+        // Update only if columns exist (use $columns gathered earlier)
+        if (in_array('Api_Token', $columns, true)) {
             try {
-                if ($hasColumn($db, 'drivers', 'Token_Expires')) {
+                if (in_array('Token_Expires', $columns, true)) {
                     $upd = $db->prepare('UPDATE drivers SET Api_Token=?, Token_Expires=? WHERE Driver_ID=?');
                     $upd->execute([$token, $expires, $user['Driver_ID']]);
                 } else {
