@@ -62,6 +62,23 @@ try {
         $stmt = $db->prepare("SELECT $colList FROM drivers WHERE LOWER(Gmail) = ? LIMIT 1");
         $stmt->execute([$email]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        // Debug: log whether a user was found (no sensitive data)
+        if (!empty($user)) {
+            $preview = [];
+            $preview['Driver_ID'] = $user['Driver_ID'] ?? null;
+            $preview['Gmail'] = $user['Gmail'] ?? null;
+            // show a short preview of password field (do NOT log full password)
+            $storedPreview = '';
+            if (!empty($user['Password_Hash'] ?? '')) {
+                $storedPreview = substr($user['Password_Hash'], 0, 20);
+            } elseif (!empty($user['Password'] ?? '')) {
+                $storedPreview = substr($user['Password'], 0, 20);
+            }
+            $preview['pwd_preview'] = $storedPreview;
+            error_log('driver/login fetched user: ' . json_encode($preview));
+        } else {
+            error_log('driver/login: no user found for ' . $email);
+        }
     } catch (Throwable $e) {
         error_log('driver/login query error: ' . $e->getMessage());
         http_response_code(500);
@@ -92,6 +109,24 @@ try {
                 }
             }
         }
+    }
+
+    // Debug: log password verification steps (no plaintext)
+    try {
+        $stored = $user['Password_Hash'] ?? $user['Password'] ?? '';
+        $storedType = '';
+        if ($stored === '') {
+            $storedType = 'none';
+        } elseif (strpos($stored, '$2') === 0 || strpos($stored, '$argon') === 0) {
+            $storedType = 'modern_hash';
+        } elseif (preg_match('/^[a-f0-9]{32}$/i', $stored)) {
+            $storedType = 'md5';
+        } else {
+            $storedType = 'plain_or_other';
+        }
+        error_log('driver/login verify: email=' . $email . ' stored_type=' . $storedType . ' pwdOk=' . ($pwdOk ? '1' : '0'));
+    } catch (Throwable $e) {
+        error_log('driver/login debug log failed: ' . $e->getMessage());
     }
 
     if (!$user || !$pwdOk) {
