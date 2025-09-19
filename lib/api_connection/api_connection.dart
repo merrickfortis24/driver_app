@@ -12,7 +12,7 @@ class API {
   // - Physical device on same Wi‑Fi to local XAMPP (replace with your PC's LAN IP)
   // ignore: unused_field
   static const String _lanBase =
-      'http://192.168.1.12/naitsa/driver_app/api_drivers';
+      'http://172.20.10.2/naitsa/driver_app/api_drivers';
 
   // Optional override via: flutter run --dart-define=API_BASE=https://example.com/api
   static const String _envBase = String.fromEnvironment(
