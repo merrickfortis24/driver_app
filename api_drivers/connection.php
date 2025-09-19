@@ -27,7 +27,7 @@ class Database {
     private string $charset = 'utf8mb4';
     private bool $ssl = false;
     private ?string $sslCa = null;
-    private bool $debug = false;
+    private bool $debug = false; 
 
     private static ?PDO $pdo = null;
 
