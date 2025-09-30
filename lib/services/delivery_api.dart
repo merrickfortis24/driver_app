@@ -53,8 +53,13 @@ class DeliveryApi {
         )
         .timeout(const Duration(seconds: 20));
 
+    print('orders response: ${res.body}');
+
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw Exception('orders_http_${res.statusCode}: ${res.body}');
+    }
+    if (!res.headers['content-type']!.contains('application/json')) {
+      throw Exception('Invalid response: not JSON. Body: ${res.body}');
     }
     final jsonBody = json.decode(res.body);
     final List list = (jsonBody is Map && jsonBody['orders'] is List)
