@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../api_connection/api_connection.dart';
 import '../models/delivery.dart';
+import 'delivery_exceptions.dart';
 
 class DeliveryApi {
   DeliveryApi._();
@@ -40,31 +41,78 @@ class DeliveryApi {
   Future<List<DeliveryOrder>> fetchOrders() async {
     final token = await _getToken();
     if (token == null || token.isEmpty) {
-      throw Exception('missing_token');
+      throw UnauthorizedException('missing_token');
     }
+
     final uri = Uri.parse(API.orders);
     final res = await http
         .get(
           uri,
           headers: {
             'Accept': 'application/json',
+            'Content-Type': 'application/json',
             'Authorization': 'Bearer $token',
           },
         )
         .timeout(const Duration(seconds: 20));
 
-    print('orders response: ${res.body}');
+    print('orders response status: ${res.statusCode}');
+    print('orders response headers: ${res.headers}');
+    print(
+      'orders response body (truncated 2000 chars): ${res.body.length > 2000 ? res.body.substring(0, 2000) + "..." : res.body}',
+    );
+
+    // If unauthorized, clear token and throw a specific exception so UI can react.
+    if (res.statusCode == 401) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('token');
+      } catch (_) {}
+      throw UnauthorizedException('Unauthorized: ${res.body}');
+    }
 
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw Exception('orders_http_${res.statusCode}: ${res.body}');
+      throw ApiException(
+        'orders_http_${res.statusCode}: ${res.body}',
+        statusCode: res.statusCode,
+      );
     }
-    if (!res.headers['content-type']!.contains('application/json')) {
-      throw Exception('Invalid response: not JSON. Body: ${res.body}');
+
+    // Try to decode JSON but provide a helpful error if the body contains HTML or invalid JSON.
+    dynamic jsonBody;
+    try {
+      jsonBody = json.decode(res.body);
+    } catch (e) {
+      final bodyLower = res.body.toLowerCase();
+      final isHtml =
+          res.body.trimLeft().startsWith('<') ||
+          bodyLower.contains('<html') ||
+          bodyLower.contains('<!doctype');
+      final looksLikeLogin =
+          bodyLower.contains('login') ||
+          bodyLower.contains('sign in') ||
+          bodyLower.contains('<form');
+
+      if (isHtml && looksLikeLogin) {
+        // Clear stored token to force re-auth in the app
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.remove('token');
+        } catch (_) {}
+        throw UnauthorizedException(
+          'Server returned HTML login page; cleared token.',
+        );
+      }
+
+      throw ApiException(
+        'Failed to parse JSON from orders endpoint. HTTP ${res.statusCode}. Body (truncated 2000 chars): ${res.body.length > 2000 ? res.body.substring(0, 2000) + "..." : res.body}',
+        statusCode: res.statusCode,
+      );
     }
-    final jsonBody = json.decode(res.body);
-    final List list = (jsonBody is Map && jsonBody['orders'] is List)
-        ? jsonBody['orders']
-        : (jsonBody is List ? jsonBody : []);
+
+    final list = jsonBody is List
+        ? jsonBody
+        : (jsonBody is Map && jsonBody['data'] is List ? jsonBody['data'] : []);
 
     return list.map<DeliveryOrder>((e) {
       final items = (e['items'] as List? ?? [])
