@@ -102,41 +102,35 @@ if (isset($colsOrdersMap['customer_id'])) {
 
 $selectList = implode(', ', $select);
 
+// prefer a fixed set of statuses
 $statusList = ['Pending','Processing','Ready to deliver','On the way','Delivered'];
 $statusIn = "'" . implode("','", $statusList) . "'";
 
-// Build a list of address/availability conditions and join them safely with OR
+// Build address/availability conditions but only reference tables that actually have the columns
 $addrConditions = [];
-
-// For each address-like field, only reference the table(s) that actually have the column
-$fieldsToCheck = ['street','city'];
-foreach ($fieldsToCheck as $field) {
-  $parts = [];
-  if (isset($colsOrdersMap[$field])) {
-    $parts[] = "o.`{$colsOrdersMap[$field]}` IS NOT NULL";
-  }
-  if (isset($colsAddressMap[$field])) {
-    $parts[] = "addr.`{$colsAddressMap[$field]}` IS NOT NULL";
-  }
-  if (!empty($parts)) {
-    $addrConditions[] = '(' . implode(' OR ', $parts) . ')';
-  }
+// check order_address (addr) for customer coords
+if (isset($colsAddressMap['customer_lat']) && isset($colsAddressMap['customer_lng'])) {
+  $addrConditions[] = "(addr.`{$colsAddressMap['customer_lat']}` IS NOT NULL AND addr.`{$colsAddressMap['customer_lng']}` IS NOT NULL)";
 }
-
-// Contact number may exist in orders table
+// contact number may be in orders
 if (isset($colsOrdersMap['contact_number'])) {
   $addrConditions[] = "o.`{$colsOrdersMap['contact_number']}` IS NOT NULL";
+} elseif (isset($colsAddressMap['contact_number'])) {
+  $addrConditions[] = "addr.`{$colsAddressMap['contact_number']}` IS NOT NULL";
+}
+// street/city etc only reference addr if orders doesn't have them
+if (isset($colsAddressMap['street']) || isset($colsAddressMap['city']) || isset($colsAddressMap['barangay'])) {
+  $parts = [];
+  if (isset($colsAddressMap['street'])) $parts[] = "addr.`{$colsAddressMap['street']}` IS NOT NULL";
+  if (isset($colsAddressMap['barangay'])) $parts[] = "addr.`{$colsAddressMap['barangay']}` IS NOT NULL";
+  if (isset($colsAddressMap['city'])) $parts[] = "addr.`{$colsAddressMap['city']}` IS NOT NULL";
+  if (!empty($parts)) $addrConditions[] = '(' . implode(' OR ', $parts) . ')';
 }
 
-// Always require coordinates from orders table (if present)
-if (isset($colsOrdersMap['customer_lat']) && isset($colsOrdersMap['customer_lng'])) {
-  $addrConditions[] = "(o.`{$colsOrdersMap['customer_lat']}` IS NOT NULL AND o.`{$colsOrdersMap['customer_lng']}` IS NOT NULL)";
-}
-
-// build WHERE parts
+// always include status condition
 $whereParts = [];
-$whereParts[] = "o.`" . ($colsOrdersMap['order_status'] ?? 'order_status') . "` IN ($statusIn)";
-
+$orderStatusCol = $colsOrdersMap['order_status'] ?? 'order_status';
+$whereParts[] = "o.`$orderStatusCol` IN ($statusIn)";
 if (!empty($addrConditions)) {
   $whereParts[] = '(' . implode(' OR ', $addrConditions) . ')';
 }
@@ -146,17 +140,26 @@ $whereSql = implode("\n    AND ", $whereParts);
 // determine order by column safely
 $orderColumn = isset($colsOrdersMap['order_date']) ? "o.`{$colsOrdersMap['order_date']}`" : "o.`Order_Date`";
 
+// final SQL
 $sql = "SELECT $selectList
-  FROM orders o
-  LEFT JOIN order_address addr ON addr.Order_ID = o.Order_ID
-  LEFT JOIN customer c ON c.Customer_ID = o.Customer_ID
+  FROM `orders` o
+  LEFT JOIN `order_address` addr ON addr.Order_ID = o.Order_ID
+  LEFT JOIN `customer` c ON c.Customer_ID = o.Customer_ID
   WHERE $whereSql
   ORDER BY $orderColumn DESC
   LIMIT 30";
 
-$stmt = $db->prepare($sql);
-$stmt->execute();
-$orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
+try {
+  $stmt = $db->prepare($sql);
+  $stmt->execute();
+  $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {
+  // log and return a JSON error so client doesn't get HTML
+  error_log('orders/query failed: ' . $e->getMessage());
+  http_response_code(500);
+  echo json_encode(['error' => 'server_error', 'message' => 'Failed to fetch orders']);
+  exit;
+}
 
 // load items for each order
 $itemStmt = $db->prepare("SELECT oi.Order_Item_ID, oi.Product_ID, p.Product_Name, oi.Quantity, oi.Price
