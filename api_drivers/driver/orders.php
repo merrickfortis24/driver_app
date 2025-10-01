@@ -90,23 +90,37 @@ if (in_array('Customer_ID', $colsOrders, true)) {
 
 $selectList = implode(', ', $select);
 
+$statusList = ['Pending','Processing','Ready to deliver','On the way','Delivered'];
+$statusIn = "'" . implode("','", $statusList) . "'";
+
+// Build a list of address/availability conditions and join them safely with OR
+$addrConditions = [];
+if (in_array('Street', $colsOrders, true) || in_array('Street', $colsAddress, true)) {
+  $addrConditions[] = '(o.Street IS NOT NULL OR addr.Street IS NOT NULL)';
+}
+if (in_array('City', $colsOrders, true) || in_array('City', $colsAddress, true)) {
+  $addrConditions[] = '(o.City IS NOT NULL OR addr.City IS NOT NULL)';
+}
+if (in_array('Contact_Number', $colsOrders, true)) {
+  $addrConditions[] = 'o.Contact_Number IS NOT NULL';
+}
+// Always require coordinates
+$addrConditions[] = '(o.customer_lat IS NOT NULL AND o.customer_lng IS NOT NULL)';
+
+$addressWhere = '(' . implode(' OR ', $addrConditions) . ')';
+
 $sql = "SELECT $selectList
   FROM orders o
   LEFT JOIN order_address addr ON addr.Order_ID = o.Order_ID
   LEFT JOIN customer c ON c.Customer_ID = o.Customer_ID
-  WHERE (
-      o.order_status IN ('Pending','Processing','Ready to deliver','On the way','Delivered')
-    )
-    AND (
-      (" . (in_array('Street', $colsOrders, true) || in_array('Street', $colsAddress, true) ? "(o.Street IS NOT NULL OR addr.Street IS NOT NULL) OR " : "") .
-      (in_array('City', $colsOrders, true) || in_array('City', $colsAddress, true) ? "(o.City IS NOT NULL OR addr.City IS NOT NULL) OR " : "") .
-      (in_array('Contact_Number', $colsOrders, true) ? "o.Contact_Number IS NOT NULL OR " : "") .
-      "(o.customer_lat IS NOT NULL AND o.customer_lng IS NOT NULL)
-    )
+  WHERE o.order_status IN ($statusIn)
+    AND $addressWhere
   ORDER BY o.Order_Date DESC
   LIMIT 30";
 
-$orders = $db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+$stmt = $db->prepare($sql);
+$stmt->execute();
+$orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // load items for each order
 $itemStmt = $db->prepare("SELECT oi.Order_Item_ID, oi.Product_ID, p.Product_Name, oi.Quantity, oi.Price

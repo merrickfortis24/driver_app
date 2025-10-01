@@ -1,7 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:logging/logging.dart';
 import 'pages/login.dart';
 
 void main() {
+  // Simple logging configuration for development. In production you may
+  // want to route logs to a file or remote service and change the level.
+  Logger.root.level = Level.ALL;
+  Logger.root.onRecord.listen((record) {
+    // Print to console with a concise format — Flutter tooling will capture this.
+    // Replace or extend this handler in production if needed.
+    // ignore: avoid_print
+    print(
+      '${record.level.name}: ${record.loggerName}: ${record.time}: ${record.message}',
+    );
+  });
+
   runApp(const MyApp());
 }
 

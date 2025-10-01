@@ -3,7 +3,9 @@ import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import '../models/delivery.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/delivery_api.dart';
+import '../services/delivery_exceptions.dart';
 import 'login.dart';
 import 'map_page.dart';
 
@@ -37,11 +39,32 @@ class _HomePageState extends State<HomePage> {
     });
     try {
       final orders = await _api.fetchOrders();
-      if (mounted) setState(() => _orders = orders);
+      if (mounted) {
+        setState(() => _orders = orders);
+      }
     } catch (e) {
-      if (mounted) setState(() => _error = 'Failed to load orders');
+      // Provide a more helpful message and handle unauthorized by
+      // clearing stored token and redirecting to login.
+      if (e is UnauthorizedException) {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.remove('token');
+        } catch (_) {}
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const LoginPage()),
+            (route) => false,
+          );
+        }
+        return;
+      }
+
+      final message = e is ApiException ? e.message : e.toString();
+      if (mounted) setState(() => _error = message);
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -49,10 +72,31 @@ class _HomePageState extends State<HomePage> {
     setState(() => _refreshing = true);
     try {
       final orders = await _api.fetchOrders();
-      if (mounted) setState(() => _orders = orders);
+      if (mounted) {
+        setState(() => _orders = orders);
+      }
+    } catch (e) {
+      if (e is UnauthorizedException) {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.remove('token');
+        } catch (_) {}
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const LoginPage()),
+            (route) => false,
+          );
+        }
+        return;
+      }
+      if (mounted) {
+        setState(() => _error = e is ApiException ? e.message : e.toString());
+      }
     } finally {
       await Future<void>.delayed(const Duration(milliseconds: 300));
-      if (mounted) setState(() => _refreshing = false);
+      if (mounted) {
+        setState(() => _refreshing = false);
+      }
     }
   }
 

@@ -10,5 +10,5 @@ class ApiException implements Exception {
 }
 
 class UnauthorizedException extends ApiException {
-  UnauthorizedException(String message) : super(message, statusCode: 401);
+  UnauthorizedException(super.message) : super(statusCode: 401);
 }

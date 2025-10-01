@@ -5,10 +5,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api_connection/api_connection.dart';
 import '../models/delivery.dart';
 import 'delivery_exceptions.dart';
+import 'package:logging/logging.dart';
 
 class DeliveryApi {
   DeliveryApi._();
   static final DeliveryApi instance = DeliveryApi._();
+  static final Logger _logger = Logger('DeliveryApi');
 
   Future<String?> _getToken() async {
     final prefs = await SharedPreferences.getInstance();
@@ -56,10 +58,10 @@ class DeliveryApi {
         )
         .timeout(const Duration(seconds: 20));
 
-    print('orders response status: ${res.statusCode}');
-    print('orders response headers: ${res.headers}');
-    print(
-      'orders response body (truncated 2000 chars): ${res.body.length > 2000 ? res.body.substring(0, 2000) + "..." : res.body}',
+    _logger.info('orders response status: ${res.statusCode}');
+    _logger.fine('orders response headers: ${res.headers}');
+    _logger.fine(
+      'orders response body (truncated 2000 chars): ${res.body.length > 2000 ? "${res.body.substring(0, 2000)}..." : res.body}',
     );
 
     // If unauthorized, clear token and throw a specific exception so UI can react.
@@ -105,7 +107,7 @@ class DeliveryApi {
       }
 
       throw ApiException(
-        'Failed to parse JSON from orders endpoint. HTTP ${res.statusCode}. Body (truncated 2000 chars): ${res.body.length > 2000 ? res.body.substring(0, 2000) + "..." : res.body}',
+        'Failed to parse JSON from orders endpoint. HTTP ${res.statusCode}. Body (truncated 2000 chars): ${res.body.length > 2000 ? "${res.body.substring(0, 2000)}..." : res.body}',
         statusCode: res.statusCode,
       );
     }
