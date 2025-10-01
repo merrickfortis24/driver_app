@@ -112,9 +112,15 @@ class DeliveryApi {
       );
     }
 
+    // Server may return a top-level list, or a map with key 'data' (old style),
+    // or a map with key 'orders' (current server implementation).
     final list = jsonBody is List
         ? jsonBody
-        : (jsonBody is Map && jsonBody['data'] is List ? jsonBody['data'] : []);
+        : (jsonBody is Map
+              ? (jsonBody['data'] is List
+                    ? jsonBody['data']
+                    : (jsonBody['orders'] is List ? jsonBody['orders'] : []))
+              : []);
 
     return list.map<DeliveryOrder>((e) {
       final items = (e['items'] as List? ?? [])

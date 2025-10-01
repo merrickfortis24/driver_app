@@ -25,6 +25,18 @@ function bearerToken(): ?string {
   return null;
 }
 
+// Development debug helper: call with ?debug=1 to return the running file, GET params and headers
+if (isset($_GET['debug']) && $_GET['debug'] == '1') {
+  $dbg = function_exists('getallheaders') ? getallheaders() : [];
+  echo json_encode([
+    'file' => __FILE__,
+    'bearer' => bearerToken(),
+    'get' => $_GET,
+    'headers' => $dbg,
+  ]);
+  exit;
+}
+
 $token = bearerToken();
 // dev helper: accept ?token=... when Authorization header isn't present (remove in prod)
 if (!$token && isset($_GET['token'])) {
