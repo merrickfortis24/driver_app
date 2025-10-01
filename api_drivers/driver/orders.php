@@ -26,6 +26,10 @@ function bearerToken(): ?string {
 }
 
 $token = bearerToken();
+// dev helper: accept ?token=... when Authorization header isn't present (remove in prod)
+if (!$token && isset($_GET['token'])) {
+  $token = $_GET['token'];
+}
 if (!$token) { http_response_code(401); echo json_encode(['error'=>'missing_token']); exit; }
 
 // auth driver
@@ -53,17 +57,24 @@ $getCols = function($table) use ($db) {
 $colsOrders = $getCols('orders');
 $colsAddress = $getCols('order_address');
 
+// build lowercase->actual-name maps for robust, case-insensitive checks
+$colsOrdersLower = array_map('strtolower', $colsOrders);
+$colsAddressLower = array_map('strtolower', $colsAddress);
+$colsOrdersMap = $colsOrders ? array_combine($colsOrdersLower, $colsOrders) : [];
+$colsAddressMap = $colsAddress ? array_combine($colsAddressLower, $colsAddress) : [];
+
 // Build select list using existing columns or NULL aliases
 $select = [];
-// always include these base fields if present or alias them to NULL
 $want = [
   'Order_ID','Order_Date','Order_Amount','Contact_Number','order_status','Driver_Status',
   'payment_received_at','payment_received_by','Assigned_Driver_ID','Picked_Up_At',
   'customer_lat','customer_lng'
 ];
 foreach ($want as $w) {
-  if (in_array($w, $colsOrders, true)) {
-    $select[] = "o.`$w`";
+  $key = strtolower($w);
+  if (isset($colsOrdersMap[$key])) {
+    $col = $colsOrdersMap[$key];
+    $select[] = "o.`$col`";
   } else {
     $select[] = "NULL AS `$w`";
   }
@@ -72,17 +83,18 @@ foreach ($want as $w) {
 // address fields may be in orders or in order_address table
 $addrWant = ['Street','Barangay','City'];
 foreach ($addrWant as $a) {
-  if (in_array($a, $colsOrders, true)) {
-    $select[] = "o.`$a`";
-  } elseif (in_array($a, $colsAddress, true)) {
-    $select[] = "addr.`$a`";
+  $key = strtolower($a);
+  if (isset($colsOrdersMap[$key])) {
+    $select[] = "o.`{$colsOrdersMap[$key]}`";
+  } elseif (isset($colsAddressMap[$key])) {
+    $select[] = "addr.`{$colsAddressMap[$key]}`";
   } else {
     $select[] = "NULL AS `$a`";
   }
 }
 
 // customer name from customer table
-if (in_array('Customer_ID', $colsOrders, true)) {
+if (isset($colsOrdersMap['customer_id'])) {
   $select[] = "c.Customer_Name";
 } else {
   $select[] = "NULL AS Customer_Name";
@@ -95,27 +107,51 @@ $statusIn = "'" . implode("','", $statusList) . "'";
 
 // Build a list of address/availability conditions and join them safely with OR
 $addrConditions = [];
-if (in_array('Street', $colsOrders, true) || in_array('Street', $colsAddress, true)) {
-  $addrConditions[] = '(o.Street IS NOT NULL OR addr.Street IS NOT NULL)';
-}
-if (in_array('City', $colsOrders, true) || in_array('City', $colsAddress, true)) {
-  $addrConditions[] = '(o.City IS NOT NULL OR addr.City IS NOT NULL)';
-}
-if (in_array('Contact_Number', $colsOrders, true)) {
-  $addrConditions[] = 'o.Contact_Number IS NOT NULL';
-}
-// Always require coordinates
-$addrConditions[] = '(o.customer_lat IS NOT NULL AND o.customer_lng IS NOT NULL)';
 
-$addressWhere = '(' . implode(' OR ', $addrConditions) . ')';
+// For each address-like field, only reference the table(s) that actually have the column
+$fieldsToCheck = ['street','city'];
+foreach ($fieldsToCheck as $field) {
+  $parts = [];
+  if (isset($colsOrdersMap[$field])) {
+    $parts[] = "o.`{$colsOrdersMap[$field]}` IS NOT NULL";
+  }
+  if (isset($colsAddressMap[$field])) {
+    $parts[] = "addr.`{$colsAddressMap[$field]}` IS NOT NULL";
+  }
+  if (!empty($parts)) {
+    $addrConditions[] = '(' . implode(' OR ', $parts) . ')';
+  }
+}
+
+// Contact number may exist in orders table
+if (isset($colsOrdersMap['contact_number'])) {
+  $addrConditions[] = "o.`{$colsOrdersMap['contact_number']}` IS NOT NULL";
+}
+
+// Always require coordinates from orders table (if present)
+if (isset($colsOrdersMap['customer_lat']) && isset($colsOrdersMap['customer_lng'])) {
+  $addrConditions[] = "(o.`{$colsOrdersMap['customer_lat']}` IS NOT NULL AND o.`{$colsOrdersMap['customer_lng']}` IS NOT NULL)";
+}
+
+// build WHERE parts
+$whereParts = [];
+$whereParts[] = "o.`" . ($colsOrdersMap['order_status'] ?? 'order_status') . "` IN ($statusIn)";
+
+if (!empty($addrConditions)) {
+  $whereParts[] = '(' . implode(' OR ', $addrConditions) . ')';
+}
+
+$whereSql = implode("\n    AND ", $whereParts);
+
+// determine order by column safely
+$orderColumn = isset($colsOrdersMap['order_date']) ? "o.`{$colsOrdersMap['order_date']}`" : "o.`Order_Date`";
 
 $sql = "SELECT $selectList
   FROM orders o
   LEFT JOIN order_address addr ON addr.Order_ID = o.Order_ID
   LEFT JOIN customer c ON c.Customer_ID = o.Customer_ID
-  WHERE o.order_status IN ($statusIn)
-    AND $addressWhere
-  ORDER BY o.Order_Date DESC
+  WHERE $whereSql
+  ORDER BY $orderColumn DESC
   LIMIT 30";
 
 $stmt = $db->prepare($sql);
