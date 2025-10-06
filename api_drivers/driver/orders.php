@@ -125,7 +125,7 @@ if (isset($colsOrdersMap['customer_id'])) {
 
 $selectList = implode(', ', $select);
 
-// prefer a fixed set of statuses
+// prefer a fixed set of statuses (include early pipeline states) for visibility
 $statusList = ['Pending','Processing','Ready to deliver','On the way','Delivered'];
 $statusIn = "'" . implode("','", $statusList) . "'";
 
@@ -150,13 +150,27 @@ if (isset($colsAddressMap['street']) || isset($colsAddressMap['city']) || isset(
   if (!empty($parts)) $addrConditions[] = '(' . implode(' OR ', $parts) . ')';
 }
 
-// always include status condition
+// Build pooled visibility logic:
+// Delivery orders: visible if unassigned OR assigned to this driver.
+// Pickup orders (if any appear): only those already assigned to this driver (or adapt as needed).
+// Determine safe driver id param for WHERE clause after authenticating driver.
+
 $whereParts = [];
 $orderStatusCol = $colsOrdersMap['order_status'] ?? 'order_status';
 $whereParts[] = "o.`$orderStatusCol` IN ($statusIn)";
 if (!empty($addrConditions)) {
   $whereParts[] = '(' . implode(' OR ', $addrConditions) . ')';
 }
+
+// Determine assignment column presence
+$assignCol = 'Driver_ID';
+if (in_array('Assigned_Driver_ID', $colsOrdersLower, true)) { $assignCol = 'Assigned_Driver_ID'; }
+elseif (in_array('Driver_ID', $colsOrdersLower, true)) { $assignCol = 'Driver_ID'; }
+
+// Add pooled condition
+$whereParts[] = "((o.order_type = 'Delivery' AND (o.`$assignCol` IS NULL OR o.`$assignCol` = :drvId))"
+  . " OR (o.order_type IS NULL)" // legacy rows with no type; show only if unassigned or already claimed by driver
+  . " OR (o.order_type = 'Pick Up' AND o.`$assignCol` = :drvId))";
 
 $whereSql = implode("\n    AND ", $whereParts);
 
@@ -174,6 +188,7 @@ $sql = "SELECT $selectList
 
 try {
   $stmt = $db->prepare($sql);
+  $stmt->bindValue(':drvId', (int)$driver['Driver_ID'], PDO::PARAM_INT);
   $stmt->execute();
   $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Throwable $e) {
@@ -243,6 +258,21 @@ foreach ($orders as $o) {
     $displayStatus = 'Ready to deliver';
   }
 
+  // Determine pool flag (unassigned delivery)
+  $isPool = false;
+  $otype = $o['order_type'] ?? '';
+  $otypeNorm = strtolower(preg_replace('/[^a-z]/','', $otype));
+  if ($otypeNorm === 'delivery') {
+    // detect assigned column(s)
+    $assignedVal = null;
+    if (isset($o['Assigned_Driver_ID']) && $o['Assigned_Driver_ID'] !== null && $o['Assigned_Driver_ID'] !== '') {
+      $assignedVal = $o['Assigned_Driver_ID'];
+    } elseif (isset($o['Driver_ID']) && $o['Driver_ID'] !== null && $o['Driver_ID'] !== '') {
+      $assignedVal = $o['Driver_ID'];
+    }
+    $isPool = ($assignedVal === null || $assignedVal === '' || (int)$assignedVal === 0);
+  }
+
   $out[] = [
     'id' => (string)$o['Order_ID'],
     'customerName' => $o['Customer_Name'],
@@ -262,6 +292,7 @@ foreach ($orders as $o) {
     'createdAt' => $o['Order_Date'],
     'pickedUpAt' => $o['Picked_Up_At'] ?? null,
     'deliveredAt' => $o['payment_received_at'],
+    'pool' => $isPool ? 1 : 0,
   ];
 }
 

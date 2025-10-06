@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter/foundation.dart' show kIsWeb; // for platform guard
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:http/http.dart' as http;
 import '../models/delivery.dart';
@@ -119,9 +120,14 @@ class _MapPageState extends State<MapPage> {
           ),
         ).timeout(const Duration(seconds: 8));
       } on TimeoutException {
-        final last = await Geolocator.getLastKnownPosition();
-        if (last == null) rethrow;
-        pos = last;
+        // getLastKnownPosition is unsupported on web; guard it
+        if (!kIsWeb) {
+          final last = await Geolocator.getLastKnownPosition();
+          if (last == null) rethrow;
+          pos = last;
+        } else {
+          rethrow; // propagate to outer catch for snackBar
+        }
       }
 
       setState(() => _current = pos);
@@ -180,9 +186,13 @@ class _MapPageState extends State<MapPage> {
             ),
           ).timeout(const Duration(seconds: 8));
         } on TimeoutException {
-          final last = await Geolocator.getLastKnownPosition();
-          if (last == null) rethrow;
-          pos = last;
+          if (!kIsWeb) {
+            final last = await Geolocator.getLastKnownPosition();
+            if (last == null) rethrow;
+            pos = last;
+          } else {
+            rethrow;
+          }
         }
       }
 

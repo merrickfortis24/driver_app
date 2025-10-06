@@ -90,7 +90,8 @@ try {
       }
     }
     if ($assignCol) {
-      $assign = $db->prepare("UPDATE orders SET `$assignCol` = COALESCE(`$assignCol`, ?) WHERE Order_ID=?");
+      // Claim if unassigned else preserve original; ensures first accept wins
+      $assign = $db->prepare("UPDATE orders SET `$assignCol` = CASE WHEN `$assignCol` IS NULL OR `$assignCol`='' OR `$assignCol`=0 THEN ? ELSE `$assignCol` END WHERE Order_ID=?");
       try { $assign->execute([$driver['Driver_ID'], $orderId]); $assignAffected = $assign->rowCount(); } catch (Throwable $e) { /* do not fail whole tx if assignment column absent */ }
     }
   }
