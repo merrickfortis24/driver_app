@@ -240,8 +240,14 @@ class DeliveryApi {
         .timeout(const Duration(seconds: 20));
 
     if (res.statusCode >= 200 && res.statusCode < 300) {
+      _logger.info(
+        'updateStatus ok order=$orderId status=$statusStr body=${res.body}',
+      );
       return true;
     }
+    _logger.warning(
+      'updateStatus failed order=$orderId status=$statusStr code=${res.statusCode} body=${res.body}',
+    );
     return false;
   }
 

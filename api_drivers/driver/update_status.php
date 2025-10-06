@@ -52,12 +52,19 @@ $dbStatus = $map[$status];
 $db->beginTransaction();
 try {
   // ensure order exists and is a Delivery-type (has address or contact)
-  $chk = $db->prepare("SELECT Order_ID, Assigned_Driver_ID, Street, City, Contact_Number FROM orders WHERE Order_ID=? FOR UPDATE");
+  // Determine pickup vs delivery by order_type (preferred) or presence of address row
+  $chk = $db->prepare("SELECT o.Order_ID, o.order_type, oa.Order_ID AS addr_exists
+                       FROM orders o
+                       LEFT JOIN order_address oa ON oa.Order_ID = o.Order_ID
+                       WHERE o.Order_ID=? FOR UPDATE");
   $chk->execute([$orderId]);
   $order = $chk->fetch(PDO::FETCH_ASSOC);
   if (!$order) { throw new RuntimeException('order_not_found'); }
-  if (empty($order['Street']) && empty($order['City']) && empty($order['Contact_Number'])) {
-    // Treat as Pick Up -> ignore driver updates
+  $rawType = $order['order_type'] ?? '';
+  // Normalize order_type by stripping non-letters and lowering (so 'Pick Up', 'PICK-UP' all count)
+  $normalizedType = strtolower(preg_replace('/[^a-z]/','', $rawType));
+  $isPickup = $normalizedType === 'pickup';
+  if ($isPickup) {
     throw new RuntimeException('pickup_order_not_applicable');
   }
 
@@ -69,15 +76,30 @@ try {
   }
 
   // assign driver on first accept and onward transitions
+  $assignAffected = 0;
+  $statusAffected = 0;
   if (in_array($status, ['accepted','on_the_way','picked_up','delivered'], true)) {
-    $assign = $db->prepare("UPDATE orders SET Assigned_Driver_ID = COALESCE(Assigned_Driver_ID, ?) WHERE Order_ID=?");
-    $assign->execute([$driver['Driver_ID'], $orderId]);
+    // Detect whether Assigned_Driver_ID column exists; fall back to Driver_ID if not
+    static $assignCol = null;
+    if ($assignCol === null) {
+      try {
+        $cols = $db->query("SHOW COLUMNS FROM `orders`")->fetchAll(PDO::FETCH_COLUMN, 0);
+        $assignCol = in_array('Assigned_Driver_ID', $cols, true) ? 'Assigned_Driver_ID' : (in_array('Driver_ID', $cols, true) ? 'Driver_ID' : null);
+      } catch (Throwable $e) {
+        $assignCol = 'Driver_ID'; // best-effort fallback
+      }
+    }
+    if ($assignCol) {
+      $assign = $db->prepare("UPDATE orders SET `$assignCol` = COALESCE(`$assignCol`, ?) WHERE Order_ID=?");
+      try { $assign->execute([$driver['Driver_ID'], $orderId]); $assignAffected = $assign->rowCount(); } catch (Throwable $e) { /* do not fail whole tx if assignment column absent */ }
+    }
   }
 
   // update order status + driver status
   if ($dbStatus !== null) {
     $upd = $db->prepare("UPDATE orders SET order_status=?, Driver_Status=? WHERE Order_ID=?");
     $upd->execute([$dbStatus, $status, $orderId]);
+    $statusAffected = $upd->rowCount();
   }
 
   if ($status === 'picked_up') {
@@ -120,10 +142,23 @@ try {
     $note->execute(["Driver {$driver['Name']} confirmed payment for Order #{$orderId}"]);
   }
 
+  // Fetch current persisted values regardless of whether MySQL returned 0 affected rows (could be same value)
+  $cur = $db->prepare("SELECT Order_ID, order_status, Driver_Status, Assigned_Driver_ID, Driver_ID, order_type FROM orders WHERE Order_ID=?");
+  $cur->execute([$orderId]);
+  $currentRow = $cur->fetch(PDO::FETCH_ASSOC) ?: [];
+
   $db->commit();
-  echo json_encode(['ok'=>true, 'orderId'=>(string)$orderId, 'status'=>$status, 'dbStatus'=>$dbStatus]);
+  echo json_encode([
+    'ok'=>true,
+    'orderId'=>(string)$orderId,
+    'requestedStatus'=>$status,
+    'mappedOrderStatus'=>$dbStatus,
+    'assignRows'=>$assignAffected,
+    'statusRows'=>$statusAffected,
+    'current'=>$currentRow,
+  ]);
 } catch (Throwable $e) {
   $db->rollBack();
   http_response_code(500);
-  echo json_encode(['error'=>'update_failed','details'=>$e->getMessage()]);
+  echo json_encode(['error'=>'update_failed','details'=>$e->getMessage(),'orderId'=>$orderId,'statusAttempt'=>$status]);
 }
