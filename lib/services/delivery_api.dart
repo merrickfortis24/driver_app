@@ -151,7 +151,9 @@ class DeliveryApi {
             ),
           )
           .toList();
-      double? lat = double.tryParse((e['lat'] ?? e['latitude'] ?? '').toString());
+      double? lat = double.tryParse(
+        (e['lat'] ?? e['latitude'] ?? '').toString(),
+      );
       double? lng = double.tryParse(
         (e['lng'] ?? e['lon'] ?? e['longitude'] ?? '').toString(),
       );
