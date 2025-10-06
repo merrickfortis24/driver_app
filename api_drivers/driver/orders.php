@@ -80,15 +80,26 @@ $select = [];
 $want = [
   'Order_ID','Order_Date','Order_Amount','Contact_Number','order_status','Driver_Status',
   'payment_received_at','payment_received_by','Assigned_Driver_ID','Picked_Up_At',
+  'order_type', // include order type so mobile can distinguish Pickup vs Delivery
   'customer_lat','customer_lng'
 ];
 foreach ($want as $w) {
   $key = strtolower($w);
+  if ($w === 'customer_lat' || $w === 'customer_lng') {
+    // Prefer orders table, else fall back to order_address
+    if (isset($colsOrdersMap[$key])) {
+      $select[] = "o.`{$colsOrdersMap[$key]}`";
+    } elseif (isset($colsAddressMap[$key])) {
+      $select[] = "addr.`{$colsAddressMap[$key]}`";
+    } else {
+      $select[] = "NULL AS `$w`";
+    }
+    continue;
+  }
   if (isset($colsOrdersMap[$key])) {
-    $col = $colsOrdersMap[$key];
-    $select[] = "o.`$col`";
+      $select[] = "o.`{$colsOrdersMap[$key]}`";
   } else {
-    $select[] = "NULL AS `$w`";
+      $select[] = "NULL AS `$w`";
   }
 }
 
@@ -237,6 +248,7 @@ foreach ($orders as $o) {
     'customerName' => $o['Customer_Name'],
     'customerPhone' => $o['Contact_Number'],
     'deliveryAddress' => trim(implode(', ', array_filter([$o['Street'], $o['Barangay'], $o['City']]))),
+    'order_type' => $o['order_type'] ?? null,
   // Provide coordinates when available
   'lat' => isset($o['customer_lat']) && $o['customer_lat'] !== '' ? (float)$o['customer_lat'] : null,
   'lng' => isset($o['customer_lng']) && $o['customer_lng'] !== '' ? (float)$o['customer_lng'] : null,

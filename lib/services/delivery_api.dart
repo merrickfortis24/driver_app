@@ -151,15 +151,39 @@ class DeliveryApi {
             ),
           )
           .toList();
+      // Accept multiple possible keys the backend might use for coordinates
       double? lat = double.tryParse(
-        (e['lat'] ?? e['latitude'] ?? '').toString(),
+        (e['lat'] ??
+                e['latitude'] ??
+                e['customer_lat'] ??
+                e['customerLat'] ??
+                e['dest_lat'] ??
+                e['destination_lat'] ??
+                '')
+            .toString(),
       );
       double? lng = double.tryParse(
-        (e['lng'] ?? e['lon'] ?? e['longitude'] ?? '').toString(),
+        (e['lng'] ??
+                e['lon'] ??
+                e['longitude'] ??
+                e['customer_lng'] ??
+                e['customerLng'] ??
+                e['dest_lng'] ??
+                e['destination_lng'] ??
+                '')
+            .toString(),
       );
       if (lat != null && lat == 0) lat = null; // treat 0 as missing
       if (lng != null && lng == 0) lng = null;
-      final orderType = (e['order_type'] ?? e['type'] ?? 'Delivery').toString();
+      // Capture order type under multiple naming conventions
+      final orderType =
+          (e['order_type'] ??
+                  e['orderType'] ??
+                  e['type'] ??
+                  e['Order_Type'] ??
+                  e['OrderType'] ??
+                  'Delivery')
+              .toString();
       return DeliveryOrder(
         id: (e['id'] ?? '').toString(),
         customerName: (e['customerName'] ?? '').toString(),
