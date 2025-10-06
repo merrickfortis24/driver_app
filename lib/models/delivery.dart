@@ -23,6 +23,8 @@ class DeliveryOrder {
   // Optional geocoordinates for the delivery destination
   final double? latitude;
   final double? longitude;
+  // Order type: e.g., Delivery or Pickup (default Delivery if absent in API)
+  final String orderType;
   final List<DeliveryItem> items;
   double totalAmount;
   final String estimatedTime;
@@ -40,6 +42,7 @@ class DeliveryOrder {
     this.deliveryInstructions,
     this.latitude,
     this.longitude,
+    this.orderType = 'Delivery',
     required this.items,
     required this.totalAmount,
     required this.estimatedTime,

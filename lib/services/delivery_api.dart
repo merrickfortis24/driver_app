@@ -12,6 +12,24 @@ class DeliveryApi {
   static final DeliveryApi instance = DeliveryApi._();
   static final Logger _logger = Logger('DeliveryApi');
 
+  DateTime? _safeDate(dynamic v) {
+    if (v == null) return null;
+    try {
+      String s = v.toString().trim();
+      if (s.isEmpty || s == 'null') return null;
+      // Common MySQL zero dates or placeholders
+      if (s == '0000-00-00' || s == '0000-00-00 00:00:00') return null;
+      // Normalize 'YYYY-MM-DD HH:MM:SS' -> 'YYYY-MM-DDTHH:MM:SS'
+      if (s.length >= 19 && s[10] == ' ' && !s.contains('T')) {
+        s = s.replaceFirst(' ', 'T');
+      }
+      // If timezone missing, let tryParse handle (will assume local)
+      return DateTime.tryParse(s);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<String?> _getToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('token');
@@ -133,10 +151,13 @@ class DeliveryApi {
             ),
           )
           .toList();
-      final lat = double.tryParse((e['lat'] ?? e['latitude'] ?? '').toString());
-      final lng = double.tryParse(
+      double? lat = double.tryParse((e['lat'] ?? e['latitude'] ?? '').toString());
+      double? lng = double.tryParse(
         (e['lng'] ?? e['lon'] ?? e['longitude'] ?? '').toString(),
       );
+      if (lat != null && lat == 0) lat = null; // treat 0 as missing
+      if (lng != null && lng == 0) lng = null;
+      final orderType = (e['order_type'] ?? e['type'] ?? 'Delivery').toString();
       return DeliveryOrder(
         id: (e['id'] ?? '').toString(),
         customerName: (e['customerName'] ?? '').toString(),
@@ -145,17 +166,16 @@ class DeliveryApi {
         deliveryInstructions: (e['deliveryInstructions'])?.toString(),
         latitude: lat,
         longitude: lng,
+        orderType: orderType,
         items: items,
         totalAmount:
             double.tryParse((e['totalAmount'] ?? '0').toString()) ?? 0.0,
         estimatedTime: (e['estimatedTime'] ?? '').toString(),
         status: _mapStatus((e['status'] ?? 'assigned').toString()),
         paymentStatus: (e['paymentStatus'] ?? '').toString(),
-        createdAt:
-            DateTime.tryParse((e['createdAt'] ?? '').toString()) ??
-            DateTime.now(),
-        pickedUpAt: DateTime.tryParse((e['pickedUpAt'] ?? '').toString()),
-        deliveredAt: DateTime.tryParse((e['deliveredAt'] ?? '').toString()),
+        createdAt: _safeDate(e['createdAt']) ?? DateTime.now(),
+        pickedUpAt: _safeDate(e['pickedUpAt']),
+        deliveredAt: _safeDate(e['deliveredAt']),
       );
     }).toList();
   }

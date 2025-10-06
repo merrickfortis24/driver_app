@@ -248,12 +248,25 @@ class _MapPageState extends State<MapPage> {
   Widget build(BuildContext context) {
     final double? lat = widget.order.latitude;
     final double? lng = widget.order.longitude;
+    final bool missingCoords =
+        lat == null || lng == null || (lat == 0 && lng == 0);
 
-    if (lat == null || lng == null) {
+    if (missingCoords) {
+      // Different messaging if this is actually a Pickup order (no destination needed)
+      final isPickup = widget.order.orderType.toLowerCase() == 'pickup';
       return Scaffold(
-        appBar: AppBar(title: const Text('Delivery Destination')),
-        body: _NoCoords(address: widget.order.deliveryAddress),
-        bottomNavigationBar: _BottomBar(address: widget.order.deliveryAddress),
+        appBar: AppBar(
+          title: Text(isPickup ? 'Pickup Order' : 'Delivery Destination'),
+        ),
+        body: _NoCoords(
+          address: widget.order.deliveryAddress,
+          isPickup: isPickup,
+        ),
+        bottomNavigationBar: _BottomBar(
+          address: widget.order.deliveryAddress,
+          // Disable in-app navigation when no coordinates
+          onInAppNavigate: null,
+        ),
       );
     }
 
@@ -361,7 +374,8 @@ class _MapPageState extends State<MapPage> {
 
 class _NoCoords extends StatelessWidget {
   final String address;
-  const _NoCoords({required this.address});
+  final bool isPickup;
+  const _NoCoords({required this.address, this.isPickup = false});
 
   @override
   Widget build(BuildContext context) {
@@ -373,16 +387,20 @@ class _NoCoords extends StatelessWidget {
           children: [
             const Icon(Icons.place_outlined, size: 48, color: Colors.grey),
             const SizedBox(height: 12),
-            const Text(
-              'No coordinates available for this address.',
-              style: TextStyle(fontWeight: FontWeight.w600),
+            Text(
+              isPickup
+                  ? 'This is a pickup order.'
+                  : 'No coordinates available for this address.',
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             Text(address, textAlign: TextAlign.center),
             const SizedBox(height: 12),
-            const Text(
-              'You can still open it in your maps app to navigate.',
-              style: TextStyle(color: Colors.black54),
+            Text(
+              isPickup
+                  ? 'Customer will pick up at the store. No destination map needed.'
+                  : 'You can still open it in your maps app to navigate.',
+              style: const TextStyle(color: Colors.black54),
               textAlign: TextAlign.center,
             ),
           ],
