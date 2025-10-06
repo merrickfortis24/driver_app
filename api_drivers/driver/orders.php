@@ -158,24 +158,31 @@ if (!empty($addrConditions)) {
   $whereParts[] = '(' . implode(' OR ', $addrConditions) . ')';
 }
 
-// Determine assignment column presence
-$assignCol = 'Driver_ID';
+// Determine assignment column presence (may not exist in some deployments)
+$assignCol = null;
 if (in_array('assigned_driver_id', $colsOrdersLower, true)) { $assignCol = 'Assigned_Driver_ID'; }
 elseif (in_array('driver_id', $colsOrdersLower, true)) { $assignCol = 'Driver_ID'; }
 
 $hasOrderType = in_array('order_type', $colsOrdersLower, true);
 if ($hasOrderType) {
-  // Use actual cased column name for order_type
   $orderTypeActual = $colsOrdersMap['order_type'];
-  // Note: DB stores 'Pickup' (no space). Include both variants just in case legacy rows exist.
-  $poolCond = "((o.`$orderTypeActual` = 'Delivery' AND (o.`$assignCol` IS NULL OR o.`$assignCol` = :drvId))"
-           . " OR (o.`$orderTypeActual` = 'Pickup' AND o.`$assignCol` = :drvId)"
-           . " OR (o.`$orderTypeActual` = 'Pick Up' AND o.`$assignCol` = :drvId)" // legacy variant
-           . " OR (o.`$orderTypeActual` IS NULL AND (o.`$assignCol` IS NULL OR o.`$assignCol` = :drvId)))";
-  $whereParts[] = $poolCond;
+  if ($assignCol) {
+    // Pool logic when assignment column exists
+    $poolCond = "((o.`$orderTypeActual` = 'Delivery' AND (o.`$assignCol` IS NULL OR o.`$assignCol` = :drvId))"
+             . " OR (o.`$orderTypeActual` = 'Pickup' AND o.`$assignCol` = :drvId)"
+             . " OR (o.`$orderTypeActual` = 'Pick Up' AND o.`$assignCol` = :drvId)"
+             . " OR (o.`$orderTypeActual` IS NULL AND (o.`$assignCol` IS NULL OR o.`$assignCol` = :drvId)))";
+    $whereParts[] = $poolCond;
+  } else {
+    // No assignment column: just include Delivery & Pickup orders (cannot filter by claimed)
+    $whereParts[] = "(o.`$orderTypeActual` IN ('Delivery','Pickup','Pick Up') OR o.`$orderTypeActual` IS NULL)";
+  }
 } else {
-  // Legacy schema: show unassigned or those already claimed by this driver
-  $whereParts[] = "(o.`$assignCol` IS NULL OR o.`$assignCol` = :drvId)";
+  if ($assignCol) {
+    $whereParts[] = "(o.`$assignCol` IS NULL OR o.`$assignCol` = :drvId)"; // legacy schema with assignment col
+  } else {
+    $whereParts[] = '1=1'; // worst‑case fallback
+  }
 }
 
 $whereSql = implode("\n    AND ", $whereParts);
@@ -194,14 +201,19 @@ $sql = "SELECT $selectList
 
 try {
   $stmt = $db->prepare($sql);
-  $stmt->bindValue(':drvId', (int)$driver['Driver_ID'], PDO::PARAM_INT);
+  if (strpos($sql, ':drvId') !== false) {
+    $stmt->bindValue(':drvId', (int)$driver['Driver_ID'], PDO::PARAM_INT);
+  }
   $stmt->execute();
   $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Throwable $e) {
-  // log and return a JSON error so client doesn't get HTML
-  error_log('orders/query failed: ' . $e->getMessage());
+  $errMsg = $e->getMessage();
+  error_log('orders/query failed: ' . $errMsg . ' SQL=' . $sql);
   http_response_code(500);
-  echo json_encode(['error' => 'server_error', 'message' => 'Failed to fetch orders']);
+  $debug = (isset($_GET['debug']) && $_GET['debug'] == 'sql');
+  $payload = ['error' => 'server_error', 'message' => 'Failed to fetch orders'];
+  if ($debug) { $payload['sql_error'] = $errMsg; $payload['sql'] = $sql; }
+  echo json_encode($payload);
   exit;
 }
 
@@ -268,7 +280,7 @@ foreach ($orders as $o) {
   $isPool = false;
   $otype = isset($o['order_type']) ? $o['order_type'] : '';
   $otypeNorm = strtolower(preg_replace('/[^a-z]/','', $otype));
-  if ($otypeNorm === 'delivery') {
+  if ($otypeNorm === 'delivery' && $assignCol) {
     // detect assigned column(s)
     $assignedVal = null;
     if (isset($o['Assigned_Driver_ID']) && $o['Assigned_Driver_ID'] !== null && $o['Assigned_Driver_ID'] !== '') {
