@@ -150,11 +150,7 @@ if (isset($colsAddressMap['street']) || isset($colsAddressMap['city']) || isset(
   if (!empty($parts)) $addrConditions[] = '(' . implode(' OR ', $parts) . ')';
 }
 
-// Build pooled visibility logic:
-// Delivery orders: visible if unassigned OR assigned to this driver.
-// Pickup orders (if any appear): only those already assigned to this driver (or adapt as needed).
-// Determine safe driver id param for WHERE clause after authenticating driver.
-
+// Build pooled visibility logic safely (handle absence of order_type column)
 $whereParts = [];
 $orderStatusCol = $colsOrdersMap['order_status'] ?? 'order_status';
 $whereParts[] = "o.`$orderStatusCol` IN ($statusIn)";
@@ -164,13 +160,23 @@ if (!empty($addrConditions)) {
 
 // Determine assignment column presence
 $assignCol = 'Driver_ID';
-if (in_array('Assigned_Driver_ID', $colsOrdersLower, true)) { $assignCol = 'Assigned_Driver_ID'; }
-elseif (in_array('Driver_ID', $colsOrdersLower, true)) { $assignCol = 'Driver_ID'; }
+if (in_array('assigned_driver_id', $colsOrdersLower, true)) { $assignCol = 'Assigned_Driver_ID'; }
+elseif (in_array('driver_id', $colsOrdersLower, true)) { $assignCol = 'Driver_ID'; }
 
-// Add pooled condition
-$whereParts[] = "((o.order_type = 'Delivery' AND (o.`$assignCol` IS NULL OR o.`$assignCol` = :drvId))"
-  . " OR (o.order_type IS NULL)" // legacy rows with no type; show only if unassigned or already claimed by driver
-  . " OR (o.order_type = 'Pick Up' AND o.`$assignCol` = :drvId))";
+$hasOrderType = in_array('order_type', $colsOrdersLower, true);
+if ($hasOrderType) {
+  // Use actual cased column name for order_type
+  $orderTypeActual = $colsOrdersMap['order_type'];
+  // Note: DB stores 'Pickup' (no space). Include both variants just in case legacy rows exist.
+  $poolCond = "((o.`$orderTypeActual` = 'Delivery' AND (o.`$assignCol` IS NULL OR o.`$assignCol` = :drvId))"
+           . " OR (o.`$orderTypeActual` = 'Pickup' AND o.`$assignCol` = :drvId)"
+           . " OR (o.`$orderTypeActual` = 'Pick Up' AND o.`$assignCol` = :drvId)" // legacy variant
+           . " OR (o.`$orderTypeActual` IS NULL AND (o.`$assignCol` IS NULL OR o.`$assignCol` = :drvId)))";
+  $whereParts[] = $poolCond;
+} else {
+  // Legacy schema: show unassigned or those already claimed by this driver
+  $whereParts[] = "(o.`$assignCol` IS NULL OR o.`$assignCol` = :drvId)";
+}
 
 $whereSql = implode("\n    AND ", $whereParts);
 
@@ -260,7 +266,7 @@ foreach ($orders as $o) {
 
   // Determine pool flag (unassigned delivery)
   $isPool = false;
-  $otype = $o['order_type'] ?? '';
+  $otype = isset($o['order_type']) ? $o['order_type'] : '';
   $otypeNorm = strtolower(preg_replace('/[^a-z]/','', $otype));
   if ($otypeNorm === 'delivery') {
     // detect assigned column(s)
