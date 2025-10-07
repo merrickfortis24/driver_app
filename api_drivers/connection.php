@@ -62,36 +62,51 @@ class Database {
     public function openCon(): PDO {
         if (self::$pdo instanceof PDO) return self::$pdo;
 
-        $dsn = "mysql:host={$this->host};port={$this->port};dbname={$this->db};charset={$this->charset}";
-        $opts = [
-            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES   => false,
-            PDO::ATTR_PERSISTENT         => false,
-            PDO::ATTR_TIMEOUT            => 5, // fail fast to avoid hanging HTTP requests
-        ];
-        // Optional SSL
-        if ($this->ssl) {
-            // Only add SSL CA if provided
-            if ($this->sslCa && is_readable($this->sslCa)) {
-                $opts[PDO::MYSQL_ATTR_SSL_CA] = $this->sslCa;
-            } else {
-                // If SSL requested but no CA provided, still attempt SSL without verification
-                if (defined('PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT')) {
+        // Try primary host then common local fallbacks (useful when developing locally
+        // with a production-oriented default like mysql.hostinger.com).
+        $hosts = [$this->host];
+        foreach (['127.0.0.1','localhost'] as $alt) {
+            if (!in_array($alt, $hosts, true)) { $hosts[] = $alt; }
+        }
+
+        $lastException = null;
+        foreach ($hosts as $tryHost) {
+            $dsn = "mysql:host={$tryHost};port={$this->port};dbname={$this->db};charset={$this->charset}";
+            $opts = [
+                PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES   => false,
+                PDO::ATTR_PERSISTENT         => false,
+                PDO::ATTR_TIMEOUT            => 8, // a bit higher for remote hosts
+            ];
+            if ($this->ssl) {
+                if ($this->sslCa && is_readable($this->sslCa)) {
+                    $opts[PDO::MYSQL_ATTR_SSL_CA] = $this->sslCa;
+                } else if (defined('PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT')) {
                     $opts[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = false;
                 }
             }
-        }
-        try {
-            self::$pdo = new PDO($dsn, $this->user, $this->pass, $opts);
-        } catch (PDOException $e) {
-            error_log('DB connect error: ' . $e->getMessage());
-            if ($this->debug) {
-                throw new RuntimeException('Database connection failed: ' . $e->getMessage());
+            try {
+                self::$pdo = new PDO($dsn, $this->user, $this->pass, $opts);
+                // Update active host so diagnostics reflect actual connection.
+                $this->host = $tryHost;
+                if ($this->debug) {
+                    error_log('DB connected using host=' . $tryHost);
+                }
+                return self::$pdo;
+            } catch (PDOException $e) {
+                $lastException = $e;
+                error_log('DB connect attempt failed host=' . $tryHost . ' msg=' . $e->getMessage());
+                // continue to next host
             }
-            throw new RuntimeException('Database connection failed.');
         }
-        return self::$pdo;
+        // If all attempts failed
+        if ($lastException) {
+            if ($this->debug || (isset($_GET['debug']) && $_GET['debug'] === 'db')) {
+                throw new RuntimeException('Database connection failed: ' . $lastException->getMessage());
+            }
+        }
+        throw new RuntimeException('Database connection failed.');
     }
 
     // Backward-compat alias (if any code calls opencon with lowercase c)
@@ -103,4 +118,20 @@ class Database {
 // Optional legacy class name alias (if some files used `new database()`)
 if (!class_exists('database')) {
     class_alias(Database::class, 'database');
+}
+
+// Helper to standardize fatal JSON output for API endpoints that include this file directly.
+if (!function_exists('db_fatal_json')) {
+    function db_fatal_json($message, $httpCode = 500): void {
+        if (!headers_sent()) {
+            http_response_code($httpCode);
+            header('Content-Type: application/json');
+        }
+        echo json_encode([
+            'success' => false,
+            'error' => $message,
+            'ts' => date(DATE_ATOM)
+        ], JSON_UNESCAPED_SLASHES);
+        exit;
+    }
 }

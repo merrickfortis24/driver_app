@@ -9,6 +9,12 @@ $db = (new Database())->openCon();
 $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 header('Content-Type: application/json');
 
+// Suppress notices/warnings from leaking into JSON (log instead)
+@ini_set('display_errors', '0');
+@ini_set('log_errors', '1');
+// Keep fatal errors minimal
+error_reporting(E_ERROR | E_PARSE);
+
 // Debug: log incoming Authorization header for troubleshooting (dev only)
 try {
   $dbg_headers = function_exists('getallheaders') ? getallheaders() : [];
@@ -55,6 +61,7 @@ if (!$driver) { http_response_code(401); echo json_encode(['error'=>'invalid_tok
 
 $colsOrders = [];
 $colsAddress = [];
+$colsCustomer = [];
 // Helper: get columns for a table
 $getCols = function($table) use ($db) {
   $st = $db->prepare("SHOW COLUMNS FROM `" . str_replace('`','', $table) . "`");
@@ -69,37 +76,56 @@ $getCols = function($table) use ($db) {
   // Build simple filter: active statuses + assigned driver (if Driver_ID column exists)
 $colsOrders = $getCols('orders');
 $colsAddress = $getCols('order_address');
+$colsCustomer = $getCols('customer');
 
 // build lowercase->actual-name maps for robust, case-insensitive checks
 $colsOrdersLower = array_map('strtolower', $colsOrders);
 $colsAddressLower = array_map('strtolower', $colsAddress);
 $colsOrdersMap = $colsOrders ? array_combine($colsOrdersLower, $colsOrders) : [];
 $colsAddressMap = $colsAddress ? array_combine($colsAddressLower, $colsAddress) : [];
+$colsCustomerLower = array_map('strtolower', $colsCustomer);
+$colsCustomerMap = $colsCustomer ? array_combine($colsCustomerLower, $colsCustomer) : [];
 
-// Build select list using existing columns or NULL aliases
+// Build select list including all required columns with NULL fallbacks to avoid undefined index warnings
 $select = [];
 $want = [
-  'Order_ID','Order_Date','Order_Amount','Contact_Number','order_status','Driver_Status',
-  'payment_received_at','payment_received_by','Picked_Up_At','order_type','customer_lat','customer_lng'
+  'Order_ID','Order_Date','Order_Amount','order_status','Driver_Status','order_type',
+  'Picked_Up_At','payment_received_at','payment_received_by','Contact_Number','customer_lat','customer_lng'
 ];
-$addrWant = ['Street','Barangay','City'];
-foreach ($addrWant as $a) {
-  $key = strtolower($a);
-  if (isset($colsOrdersMap[$key])) {
-    $select[] = "o.`{$colsOrdersMap[$key]}`";
-  } elseif (isset($colsAddressMap[$key])) {
-    $select[] = "addr.`{$colsAddressMap[$key]}`";
+foreach ($want as $w) {
+  $lk = strtolower($w);
+  $added = false;
+  // Special routing for contact number & coords
+  if ($w === 'Contact_Number') {
+    if (isset($colsOrdersMap[$lk])) { $select[] = "o.`{$colsOrdersMap[$lk]}`"; $added = true; }
+    elseif (isset($colsAddressMap[$lk])) { $select[] = "addr.`{$colsAddressMap[$lk]}`"; $added = true; }
+    elseif (isset($colsCustomerMap[$lk])) { $select[] = "c.`{$colsCustomerMap[$lk]}` AS `Contact_Number`"; $added = true; }
+  } elseif (in_array($w, ['customer_lat','customer_lng'], true)) {
+    if (isset($colsAddressMap[$lk])) { $select[] = "addr.`{$colsAddressMap[$lk]}`"; $added = true; }
+  } else {
+    if (isset($colsOrdersMap[$lk])) { $select[] = "o.`{$colsOrdersMap[$lk]}`"; $added = true; }
+    elseif (isset($colsAddressMap[$lk])) { $select[] = "addr.`{$colsAddressMap[$lk]}`"; $added = true; }
+  }
+  if (!$added) {
+    $select[] = "NULL AS `$w`";
+  }
+}
+
+// Address text parts
+$addrParts = ['Street','Barangay','City'];
+foreach ($addrParts as $a) {
+  $lk = strtolower($a);
+  if (isset($colsOrdersMap[$lk])) {
+    $select[] = "o.`{$colsOrdersMap[$lk]}`";
+  } elseif (isset($colsAddressMap[$lk])) {
+    $select[] = "addr.`{$colsAddressMap[$lk]}`";
   } else {
     $select[] = "NULL AS `$a`";
   }
 }
 
-// customer name from customer table
-if (isset($colsOrdersMap['customer_id'])) {
-  $select[] = "c.Customer_Name";
-} else {
-  $select[] = "NULL AS Customer_Name";
-}
+// customer name from customer table (safe)
+$select[] = isset($colsCustomerMap['customer_name']) ? 'c.`Customer_Name`' : 'NULL AS Customer_Name';
 
 $selectList = implode(', ', $select);
 
@@ -242,7 +268,7 @@ foreach ($orders as $o) {
     'Delivered'        => 'delivered',
     'Cancelled'        => 'rejected'
   ];
-  $protoStatus = $driverFirst ?: ($fallbackMap[$o['order_status']] ?? 'assigned');
+  $protoStatus = $driverFirst ?: ($fallbackMap[$o['order_status'] ?? ''] ?? 'assigned');
 
   // computed display status for user/admin
   $orderStatusRaw = $o['order_status'] ?? 'Pending';
@@ -259,24 +285,27 @@ foreach ($orders as $o) {
     // pool removed
 
   $out[] = [
-    'id' => (string)$o['Order_ID'],
-    'customerName' => $o['Customer_Name'],
-    'customerPhone' => $o['Contact_Number'],
-    'deliveryAddress' => trim(implode(', ', array_filter([$o['Street'], $o['Barangay'], $o['City']]))),
+    'id' => $orderIdVal !== null ? (string)$orderIdVal : null,
+    'customerName' => $o['Customer_Name'] ?? null,
+    'customerPhone' => $o['Contact_Number'] ?? null,
+    'deliveryAddress' => trim(implode(', ', array_filter([
+      $o['Street'] ?? null,
+      $o['Barangay'] ?? null,
+      $o['City'] ?? null
+    ]))),
     'order_type' => $o['order_type'] ?? null,
-  // Provide coordinates when available
-  'lat' => isset($o['customer_lat']) && $o['customer_lat'] !== '' ? (float)$o['customer_lat'] : null,
-  'lng' => isset($o['customer_lng']) && $o['customer_lng'] !== '' ? (float)$o['customer_lng'] : null,
+    'lat' => isset($o['customer_lat']) && $o['customer_lat'] !== '' ? (float)$o['customer_lat'] : null,
+    'lng' => isset($o['customer_lng']) && $o['customer_lng'] !== '' ? (float)$o['customer_lng'] : null,
     'items' => $items,
-    'totalAmount' => (float)$o['Order_Amount'],
-    'estimatedTime' => '', // not stored in DB
-    'status' => $protoStatus,        // used by the driver app
-    'driverStatus' => $o['Driver_Status'], // extra for other UIs
-    'displayStatus' => $displayStatus,     // human label for user/admin
-    'paymentStatus' => ($o['payment_received_at'] ? 'paid' : 'unpaid'),
-    'createdAt' => $o['Order_Date'],
+    'totalAmount' => isset($o['Order_Amount']) ? (float)$o['Order_Amount'] : 0.0,
+    'estimatedTime' => '',
+    'status' => $protoStatus,
+    'driverStatus' => $o['Driver_Status'] ?? null,
+    'displayStatus' => $displayStatus,
+    'paymentStatus' => (!empty($o['payment_received_at'])) ? 'paid' : 'unpaid',
+    'createdAt' => $o['Order_Date'] ?? null,
     'pickedUpAt' => $o['Picked_Up_At'] ?? null,
-  'deliveredAt' => $o['payment_received_at'],
+    'deliveredAt' => $o['payment_received_at'] ?? null,
   ];
 }
 
