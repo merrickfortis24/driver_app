@@ -75,31 +75,11 @@ try {
     return;
   }
 
-  // assign driver on first accept and onward transitions
-  $assignAffected = 0;
-  $statusAffected = 0;
-  if (in_array($status, ['accepted','on_the_way','picked_up','delivered'], true)) {
-    // Detect whether Assigned_Driver_ID column exists; fall back to Driver_ID if not
-    static $assignCol = null;
-    if ($assignCol === null) {
-      try {
-        $cols = $db->query("SHOW COLUMNS FROM `orders`")->fetchAll(PDO::FETCH_COLUMN, 0);
-        $assignCol = in_array('Assigned_Driver_ID', $cols, true) ? 'Assigned_Driver_ID' : (in_array('Driver_ID', $cols, true) ? 'Driver_ID' : null);
-      } catch (Throwable $e) {
-        $assignCol = 'Driver_ID'; // best-effort fallback
-      }
-    }
-    if ($assignCol) {
-      // Claim if unassigned else preserve original; ensures first accept wins
-      $assign = $db->prepare("UPDATE orders SET `$assignCol` = CASE WHEN `$assignCol` IS NULL OR `$assignCol`='' OR `$assignCol`=0 THEN ? ELSE `$assignCol` END WHERE Order_ID=?");
-      try { $assign->execute([$driver['Driver_ID'], $orderId]); $assignAffected = $assign->rowCount(); } catch (Throwable $e) { /* do not fail whole tx if assignment column absent */ }
-    }
-  }
-
-  // update order status + driver status
+  // Direct status update (no claim logic)
+  $assignAffected = 0; $statusAffected = 0;
   if ($dbStatus !== null) {
-    $upd = $db->prepare("UPDATE orders SET order_status=?, Driver_Status=? WHERE Order_ID=?");
-    $upd->execute([$dbStatus, $status, $orderId]);
+    $upd = $db->prepare("UPDATE orders SET order_status=?, Driver_Status=?, Driver_ID = COALESCE(Driver_ID, ?) WHERE Order_ID=?");
+    $upd->execute([$dbStatus, $status, $driver['Driver_ID'], $orderId]);
     $statusAffected = $upd->rowCount();
   }
 
@@ -144,7 +124,7 @@ try {
   }
 
   // Fetch current persisted values regardless of whether MySQL returned 0 affected rows (could be same value)
-  $cur = $db->prepare("SELECT Order_ID, order_status, Driver_Status, Assigned_Driver_ID, Driver_ID, order_type FROM orders WHERE Order_ID=?");
+  $cur = $db->prepare("SELECT Order_ID, order_status, Driver_Status, Driver_ID, order_type FROM orders WHERE Order_ID=?");
   $cur->execute([$orderId]);
   $currentRow = $cur->fetch(PDO::FETCH_ASSOC) ?: [];
 

@@ -51,6 +51,7 @@ $driver = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$driver) { http_response_code(401); echo json_encode(['error'=>'invalid_token']); exit; }
 
 // fetch orders (no assignment field in DB yet -> show Pending/Processing)
+// Reverted: show only orders assigned to this driver (no pooling)
 
 $colsOrders = [];
 $colsAddress = [];
@@ -65,7 +66,7 @@ $getCols = function($table) use ($db) {
     return [];
   }
 };
-
+  // Build simple filter: active statuses + assigned driver (if Driver_ID column exists)
 $colsOrders = $getCols('orders');
 $colsAddress = $getCols('order_address');
 
@@ -79,31 +80,8 @@ $colsAddressMap = $colsAddress ? array_combine($colsAddressLower, $colsAddress) 
 $select = [];
 $want = [
   'Order_ID','Order_Date','Order_Amount','Contact_Number','order_status','Driver_Status',
-  'payment_received_at','payment_received_by','Assigned_Driver_ID','Picked_Up_At',
-  'order_type', // include order type so mobile can distinguish Pickup vs Delivery
-  'customer_lat','customer_lng'
+  'payment_received_at','payment_received_by','Picked_Up_At','order_type','customer_lat','customer_lng'
 ];
-foreach ($want as $w) {
-  $key = strtolower($w);
-  if ($w === 'customer_lat' || $w === 'customer_lng') {
-    // Prefer orders table, else fall back to order_address
-    if (isset($colsOrdersMap[$key])) {
-      $select[] = "o.`{$colsOrdersMap[$key]}`";
-    } elseif (isset($colsAddressMap[$key])) {
-      $select[] = "addr.`{$colsAddressMap[$key]}`";
-    } else {
-      $select[] = "NULL AS `$w`";
-    }
-    continue;
-  }
-  if (isset($colsOrdersMap[$key])) {
-      $select[] = "o.`{$colsOrdersMap[$key]}`";
-  } else {
-      $select[] = "NULL AS `$w`";
-  }
-}
-
-// address fields may be in orders or in order_address table
 $addrWant = ['Street','Barangay','City'];
 foreach ($addrWant as $a) {
   $key = strtolower($a);
@@ -150,47 +128,23 @@ if (isset($colsAddressMap['street']) || isset($colsAddressMap['city']) || isset(
   if (!empty($parts)) $addrConditions[] = '(' . implode(' OR ', $parts) . ')';
 }
 
-// Build pooled visibility logic safely (handle absence of order_type column)
+// Build simple visibility logic (statuses + assigned driver) replacing broken pooled block
 $whereParts = [];
-$orderStatusCol = $colsOrdersMap['order_status'] ?? 'order_status';
-$whereParts[] = "o.`$orderStatusCol` IN ($statusIn)";
-if (!empty($addrConditions)) {
-  $whereParts[] = '(' . implode(' OR ', $addrConditions) . ')';
+if (isset($colsOrdersMap['order_status'])) {
+  $orderStatusCol = $colsOrdersMap['order_status'];
+  $whereParts[] = "o.`$orderStatusCol` IN ($statusIn)";
 }
-
-// Determine assignment column presence (may not exist in some deployments)
-$assignCol = null;
-if (in_array('assigned_driver_id', $colsOrdersLower, true)) { $assignCol = 'Assigned_Driver_ID'; }
-elseif (in_array('driver_id', $colsOrdersLower, true)) { $assignCol = 'Driver_ID'; }
-
-$hasOrderType = in_array('order_type', $colsOrdersLower, true);
-if ($hasOrderType) {
-  $orderTypeActual = $colsOrdersMap['order_type'];
-  if ($assignCol) {
-    // Pool logic when assignment column exists
-    $poolCond = "((o.`$orderTypeActual` = 'Delivery' AND (o.`$assignCol` IS NULL OR o.`$assignCol` = :drvId))"
-             . " OR (o.`$orderTypeActual` = 'Pickup' AND o.`$assignCol` = :drvId)"
-             . " OR (o.`$orderTypeActual` = 'Pick Up' AND o.`$assignCol` = :drvId)"
-             . " OR (o.`$orderTypeActual` IS NULL AND (o.`$assignCol` IS NULL OR o.`$assignCol` = :drvId)))";
-    $whereParts[] = $poolCond;
-  } else {
-    // No assignment column: just include Delivery & Pickup orders (cannot filter by claimed)
-    $whereParts[] = "(o.`$orderTypeActual` IN ('Delivery','Pickup','Pick Up') OR o.`$orderTypeActual` IS NULL)";
-  }
-} else {
-  if ($assignCol) {
-    $whereParts[] = "(o.`$assignCol` IS NULL OR o.`$assignCol` = :drvId)"; // legacy schema with assignment col
-  } else {
-    $whereParts[] = '1=1'; // worst‑case fallback
-  }
+if (in_array('driver_id', $colsOrdersLower, true)) {
+  $whereParts[] = 'o.`Driver_ID` = :drvId';
 }
-
-$whereSql = implode("\n    AND ", $whereParts);
+// (Optional) require at least one address/contact condition if any exist
+// if (!empty($addrConditions)) { $whereParts[] = '(' . implode(' OR ', $addrConditions) . ')'; }
+$whereSql = $whereParts ? implode("\n    AND ", $whereParts) : '1=1';
 
 // determine order by column safely
 $orderColumn = isset($colsOrdersMap['order_date']) ? "o.`{$colsOrdersMap['order_date']}`" : "o.`Order_Date`";
 
-// final SQL
+// final SQL (reconstructed after cleanup)
 $sql = "SELECT $selectList
   FROM `orders` o
   LEFT JOIN `order_address` addr ON addr.Order_ID = o.Order_ID
@@ -207,14 +161,34 @@ try {
   $stmt->execute();
   $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Throwable $e) {
-  $errMsg = $e->getMessage();
-  error_log('orders/query failed: ' . $errMsg . ' SQL=' . $sql);
-  http_response_code(500);
-  $debug = (isset($_GET['debug']) && $_GET['debug'] == 'sql');
-  $payload = ['error' => 'server_error', 'message' => 'Failed to fetch orders'];
-  if ($debug) { $payload['sql_error'] = $errMsg; $payload['sql'] = $sql; }
-  echo json_encode($payload);
-  exit;
+  // Attempt a simplified fallback query (no joins, minimal columns) for diagnostics
+  $primaryErr = $e->getMessage();
+  $fallbackSql = "SELECT o.Order_ID, o.Order_Date, o.Driver_Status FROM `orders` o ORDER BY o.Order_ID DESC LIMIT 30";
+  try {
+    $fb = $db->query($fallbackSql);
+    $orders = $fb->fetchAll(PDO::FETCH_ASSOC);
+    // Mark that we are in fallback mode so output builder can adapt
+    $fallbackMode = true;
+  } catch (Throwable $e2) {
+    $fallbackMode = false;
+    $secondaryErr = $e2->getMessage();
+    error_log('orders/query failed primary=' . $primaryErr . ' secondary=' . $secondaryErr . ' SQL=' . $sql . ' FBSQL=' . $fallbackSql);
+    http_response_code(500);
+    $debug = (isset($_GET['debug']) && $_GET['debug'] == 'sql');
+    $payload = ['error' => 'server_error', 'message' => 'Failed to fetch orders'];
+    if ($debug) {
+      $payload['sql_error'] = $primaryErr;
+      $payload['sql'] = $sql;
+      $payload['fallback_sql_error'] = $secondaryErr;
+      $payload['fallback_sql'] = $fallbackSql;
+      $payload['detected_columns'] = [
+        'orders' => $colsOrders,
+        'order_address' => $colsAddress
+      ];
+    }
+    echo json_encode($payload);
+    exit;
+  }
 }
 
 // load items for each order
@@ -228,33 +202,37 @@ $addonStmt = $db->prepare("SELECT Addon_Name, Addon_Price, Quantity
 
 $out = [];
 foreach ($orders as $o) {
-  $itemStmt->execute([$o['Order_ID']]);
-  $items = [];
-  while ($it = $itemStmt->fetch(PDO::FETCH_ASSOC)) {
-    // addons (optional)
-    $addonStmt->execute([$o['Order_ID'], $it['Order_Item_ID']]);
-    $addons = $addonStmt->fetchAll(PDO::FETCH_ASSOC);
-
-    $addonOut = [];
-    foreach ($addons as $a) {
-      $addonOut[] = [
-        'name' => $a['Addon_Name'],
-        'price' => (float)$a['Addon_Price'],
-        'quantity' => (int)$a['Quantity'],
+  $o = $o ?: [];
+  $orderIdVal = $o['Order_ID'] ?? null;
+  // In fallbackMode we won't have add-on and item info columns; skip item load gracefully
+  if (!empty($fallbackMode)) {
+    $items = [];
+  } else {
+    $itemStmt->execute([$orderIdVal]);
+    $items = [];
+    while ($it = $itemStmt->fetch(PDO::FETCH_ASSOC)) {
+      $addonStmt->execute([$orderIdVal, $it['Order_Item_ID']]);
+      $addons = $addonStmt->fetchAll(PDO::FETCH_ASSOC);
+      $addonOut = [];
+      foreach ($addons as $a) {
+        $addonOut[] = [
+          'name' => $a['Addon_Name'],
+          'price' => (float)$a['Addon_Price'],
+          'quantity' => (int)$a['Quantity'],
+        ];
+      }
+      $items[] = [
+        'id' => (string)$it['Order_Item_ID'],
+        'name' => $it['Product_Name'],
+        'quantity' => (int)$it['Quantity'],
+        'price' => (float)$it['Price'],
+        'addons' => $addonOut,
       ];
     }
-
-    $items[] = [
-      'id' => (string)$it['Order_Item_ID'],
-      'name' => $it['Product_Name'],
-      'quantity' => (int)$it['Quantity'],
-      'price' => (float)$it['Price'],
-      'addons' => $addonOut,
-    ];
   }
 
   // driver-first mapping for mobile "status"
-  $driverFirst = $o['Driver_Status'];
+  $driverFirst = $o['Driver_Status'] ?? null;
   // Map DB order_status -> prototype driver status when Driver_Status is empty
   $fallbackMap = [
     'Pending'          => 'assigned',
@@ -267,29 +245,18 @@ foreach ($orders as $o) {
   $protoStatus = $driverFirst ?: ($fallbackMap[$o['order_status']] ?? 'assigned');
 
   // computed display status for user/admin
-  $displayStatus = $o['order_status'];
-  if ($o['order_status'] === 'On the way' || in_array($o['Driver_Status'], ['on_the_way','picked_up'], true)) {
+  $orderStatusRaw = $o['order_status'] ?? 'Pending';
+  $displayStatus = $orderStatusRaw;
+  if ($orderStatusRaw === 'On the way' || in_array(($o['Driver_Status'] ?? ''), ['on_the_way','picked_up'], true)) {
     $displayStatus = 'Out for delivery';
-  } elseif ($o['order_status'] === 'Processing') {
+  } elseif ($orderStatusRaw === 'Processing') {
     $displayStatus = 'Preparing';
-  } elseif ($o['order_status'] === 'Ready to deliver') {
+  } elseif ($orderStatusRaw === 'Ready to deliver') {
     $displayStatus = 'Ready to deliver';
   }
 
-  // Determine pool flag (unassigned delivery)
-  $isPool = false;
-  $otype = isset($o['order_type']) ? $o['order_type'] : '';
-  $otypeNorm = strtolower(preg_replace('/[^a-z]/','', $otype));
-  if ($otypeNorm === 'delivery' && $assignCol) {
-    // detect assigned column(s)
-    $assignedVal = null;
-    if (isset($o['Assigned_Driver_ID']) && $o['Assigned_Driver_ID'] !== null && $o['Assigned_Driver_ID'] !== '') {
-      $assignedVal = $o['Assigned_Driver_ID'];
-    } elseif (isset($o['Driver_ID']) && $o['Driver_ID'] !== null && $o['Driver_ID'] !== '') {
-      $assignedVal = $o['Driver_ID'];
-    }
-    $isPool = ($assignedVal === null || $assignedVal === '' || (int)$assignedVal === 0);
-  }
+  // Pool model removed.
+    // pool removed
 
   $out[] = [
     'id' => (string)$o['Order_ID'],
@@ -309,8 +276,7 @@ foreach ($orders as $o) {
     'paymentStatus' => ($o['payment_received_at'] ? 'paid' : 'unpaid'),
     'createdAt' => $o['Order_Date'],
     'pickedUpAt' => $o['Picked_Up_At'] ?? null,
-    'deliveredAt' => $o['payment_received_at'],
-    'pool' => $isPool ? 1 : 0,
+  'deliveredAt' => $o['payment_received_at'],
   ];
 }
 
