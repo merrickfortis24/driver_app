@@ -26,12 +26,12 @@ class _HomePageState extends State<HomePage> {
   String? _error;
   String _activeTab = 'active'; // 'active' | 'history'
   bool _refreshing = false;
-  
+
   // Sorting/Filtering
   SortOption _sort = SortOption.status;
-  OrderStatus? _activeFilter;   // null = All
-  OrderStatus? _historyFilter;  // null = All
-  Position? _position;          // cached user location for distance sort
+  OrderStatus? _activeFilter; // null = All
+  OrderStatus? _historyFilter; // null = All
+  Position? _position; // cached user location for distance sort
   bool _gettingPosition = false;
 
   @override
@@ -117,16 +117,23 @@ class _HomePageState extends State<HomePage> {
       if (perm == LocationPermission.denied) {
         perm = await Geolocator.requestPermission();
       }
-      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Location permission denied. Distance sort may be inaccurate.')),
+            const SnackBar(
+              content: Text(
+                'Location permission denied. Distance sort may be inaccurate.',
+              ),
+            ),
           );
         }
         return;
       }
       final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.best),
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.best,
+        ),
       ).timeout(const Duration(seconds: 10));
       if (mounted) setState(() => _position = pos);
     } catch (_) {
@@ -141,7 +148,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   double _distanceMeters(DeliveryOrder o) {
-    if (_position == null || o.latitude == null || o.longitude == null) return double.infinity;
+    if (_position == null || o.latitude == null || o.longitude == null)
+      return double.infinity;
     return Geolocator.distanceBetween(
       _position!.latitude,
       _position!.longitude,
@@ -174,7 +182,9 @@ class _HomePageState extends State<HomePage> {
         list.sort((a, b) => b.totalAmount.compareTo(a.totalAmount));
         break;
       case SortOption.status:
-        list.sort((a, b) => _statusRank(a.status).compareTo(_statusRank(b.status)));
+        list.sort(
+          (a, b) => _statusRank(a.status).compareTo(_statusRank(b.status)),
+        );
         break;
       case SortOption.distance:
         // Ensure we have a position; sorting continues even if we cannot get it.
@@ -614,9 +624,27 @@ class _HomePageState extends State<HomePage> {
                 tooltip: 'Sort',
                 onSelected: (v) => setState(() => _sort = v),
                 itemBuilder: (context) => const [
-                  PopupMenuItem(value: SortOption.distance, child: ListTile(leading: Icon(Icons.place_outlined), title: Text('Distance (nearest)'))),
-                  PopupMenuItem(value: SortOption.amount, child: ListTile(leading: Icon(Icons.attach_money), title: Text('Amount (highest)'))),
-                  PopupMenuItem(value: SortOption.status, child: ListTile(leading: Icon(Icons.flag_outlined), title: Text('Status'))),
+                  PopupMenuItem(
+                    value: SortOption.distance,
+                    child: ListTile(
+                      leading: Icon(Icons.place_outlined),
+                      title: Text('Distance (nearest)'),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: SortOption.amount,
+                    child: ListTile(
+                      leading: Icon(Icons.attach_money),
+                      title: Text('Amount (highest)'),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: SortOption.status,
+                    child: ListTile(
+                      leading: Icon(Icons.flag_outlined),
+                      title: Text('Status'),
+                    ),
+                  ),
                 ],
                 child: OutlinedButton.icon(
                   onPressed: null, // triggers popup by parent
@@ -631,36 +659,38 @@ class _HomePageState extends State<HomePage> {
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
-              children: (
-                _activeTab == 'active'
-                    ? const [
-                        OrderStatus.assigned,
-                        OrderStatus.accepted,
-                        OrderStatus.onTheWay,
-                        OrderStatus.pickedUp,
-                      ]
-                    : const [
-                        OrderStatus.delivered,
-                        OrderStatus.rejected,
-                      ]
-              )
-                  .map((s) => Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          label: Text(_statusText(s)),
-                          selected: (_activeTab == 'active' ? _activeFilter : _historyFilter) == s,
-                          onSelected: (sel) {
-                            setState(() {
-                              if (_activeTab == 'active') {
-                                _activeFilter = sel ? s : null;
-                              } else {
-                                _historyFilter = sel ? s : null;
-                              }
-                            });
-                          },
+              children:
+                  (_activeTab == 'active'
+                          ? const [
+                              OrderStatus.assigned,
+                              OrderStatus.accepted,
+                              OrderStatus.onTheWay,
+                              OrderStatus.pickedUp,
+                            ]
+                          : const [OrderStatus.delivered, OrderStatus.rejected])
+                      .map(
+                        (s) => Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(_statusText(s)),
+                            selected:
+                                (_activeTab == 'active'
+                                    ? _activeFilter
+                                    : _historyFilter) ==
+                                s,
+                            onSelected: (sel) {
+                              setState(() {
+                                if (_activeTab == 'active') {
+                                  _activeFilter = sel ? s : null;
+                                } else {
+                                  _historyFilter = sel ? s : null;
+                                }
+                              });
+                            },
+                          ),
                         ),
-                      ))
-                  .toList(),
+                      )
+                      .toList(),
             ),
           ),
         ],
