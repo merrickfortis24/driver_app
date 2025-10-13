@@ -38,4 +38,7 @@ class API {
   static String get uploadProofs => "$hostConnectDriver/upload_proofs.php";
   static String get uploadSignature =>
       "$hostConnectDriver/upload_signature.php";
+  // cash
+  static String get cashSummary => "$hostConnectDriver/cash_summary.php";
+  static String get remit => "$hostConnectDriver/remittance_submit.php";
 }

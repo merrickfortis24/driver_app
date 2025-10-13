@@ -10,6 +10,7 @@ import 'login.dart';
 import 'map_page.dart';
 import 'profile_page.dart';
 import 'proof_capture_page.dart';
+import 'cash_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -576,6 +577,14 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ],
                     ),
+                  ),
+                  IconButton(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const CashPage()),
+                      );
+                    },
+                    icon: const Icon(Icons.payments, color: Colors.white),
                   ),
                   IconButton(
                     onPressed: () {

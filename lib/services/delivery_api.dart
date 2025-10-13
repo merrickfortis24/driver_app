@@ -8,6 +8,7 @@ import '../models/delivery.dart';
 import 'delivery_exceptions.dart';
 import 'package:logging/logging.dart';
 import 'package:http_parser/http_parser.dart';
+import 'package:flutter/foundation.dart';
 
 class DeliveryApi {
   DeliveryApi._();
@@ -380,5 +381,56 @@ class DeliveryApi {
       lastLogin: parseDate(d['lastLogin']),
       tokenExpires: parseDate(d['tokenExpires']),
     );
+  }
+
+  // Cash summary model
+  Future<Map<String, dynamic>> fetchCashSummary() async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) {
+      throw UnauthorizedException('missing_token');
+    }
+    final uri = Uri.parse(API.cashSummary);
+    final res = await http.get(uri, headers: {
+      'Accept': 'application/json',
+      'Authorization': 'Bearer $token',
+    }).timeout(const Duration(seconds: 20));
+    if (res.statusCode == 401) throw UnauthorizedException('Unauthorized');
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw ApiException('cash_summary_http_${res.statusCode}: ${res.body}',
+          statusCode: res.statusCode);
+    }
+    return json.decode(res.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> submitRemittance({
+    required double amount,
+    String? note,
+    Uint8List? proofJpeg,
+  }) async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) {
+      throw UnauthorizedException('missing_token');
+    }
+    final uri = Uri.parse(API.remit);
+    final req = http.MultipartRequest('POST', uri);
+    req.headers['Authorization'] = 'Bearer $token';
+    req.fields['amount'] = amount.toStringAsFixed(2);
+    if (note != null && note.isNotEmpty) req.fields['note'] = note;
+    if (proofJpeg != null && proofJpeg.isNotEmpty) {
+      req.files.add(http.MultipartFile.fromBytes(
+        'proof',
+        proofJpeg,
+        filename: 'proof.jpg',
+        contentType: MediaType('image', 'jpeg'),
+      ));
+    }
+    final res = await http.Response.fromStream(await req.send())
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode == 401) throw UnauthorizedException('Unauthorized');
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw ApiException('remit_http_${res.statusCode}: ${res.body}',
+          statusCode: res.statusCode);
+    }
+    return json.decode(res.body) as Map<String, dynamic>;
   }
 }
