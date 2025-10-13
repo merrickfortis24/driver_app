@@ -58,14 +58,18 @@ class Driver {
   final String id;
   final String name;
   final String email;
-  final String phone;
   final bool isActive;
+  final DateTime? createdAt;
+  final DateTime? lastLogin;
+  final DateTime? tokenExpires;
 
   Driver({
     required this.id,
     required this.name,
     required this.email,
-    required this.phone,
     required this.isActive,
+    this.createdAt,
+    this.lastLogin,
+    this.tokenExpires,
   });
 }

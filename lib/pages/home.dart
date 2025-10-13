@@ -8,6 +8,7 @@ import '../services/delivery_api.dart';
 import '../services/delivery_exceptions.dart';
 import 'login.dart';
 import 'map_page.dart';
+import 'profile_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -373,6 +374,14 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ],
                     ),
+                  ),
+                  IconButton(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const ProfilePage()),
+                      );
+                    },
+                    icon: const Icon(Icons.account_circle, color: Colors.white),
                   ),
                   IconButton(
                     onPressed: _refreshing ? null : _refresh,

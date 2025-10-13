@@ -255,4 +255,55 @@ class DeliveryApi {
       updateOrderStatus(orderId, OrderStatus.accepted);
   Future<bool> rejectOrder(String orderId) =>
       updateOrderStatus(orderId, OrderStatus.rejected);
+
+  Future<Driver> fetchProfile() async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) {
+      throw UnauthorizedException('missing_token');
+    }
+    final uri = Uri.parse(API.profile);
+    final res = await http
+        .get(
+          uri,
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+        )
+        .timeout(const Duration(seconds: 20));
+
+    if (res.statusCode == 401) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('token');
+      } catch (_) {}
+      throw UnauthorizedException('Unauthorized');
+    }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw ApiException('profile_http_${res.statusCode}: ${res.body}',
+          statusCode: res.statusCode);
+    }
+    dynamic jsonBody;
+    try {
+      jsonBody = json.decode(res.body);
+    } catch (e) {
+      throw ApiException('Invalid JSON from profile endpoint');
+    }
+    final d = jsonBody['driver'] ?? {};
+    DateTime? parseDate(dynamic v) {
+      return _safeDate(v);
+    }
+    final statusStr = (d['status'] ?? '').toString().toLowerCase();
+    final isActive = statusStr.isEmpty || statusStr == 'active';
+    return Driver(
+      id: (d['id'] ?? '').toString(),
+      name: (d['name'] ?? '').toString(),
+      email: (d['email'] ?? d['gmail'] ?? '').toString(),
+      isActive: isActive,
+      createdAt: parseDate(d['createdAt']),
+      lastLogin: parseDate(d['lastLogin']),
+      tokenExpires: parseDate(d['tokenExpires']),
+    );
+  }
 }
