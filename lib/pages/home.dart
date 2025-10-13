@@ -68,7 +68,9 @@ class _HomePageState extends State<HomePage> {
       }
 
       final message = e is ApiException ? e.message : e.toString();
-      if (mounted) setState(() => _error = message);
+      if (mounted) {
+        setState(() => _error = message);
+      }
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -110,7 +112,9 @@ class _HomePageState extends State<HomePage> {
 
   // Ensure we have a current position when sorting by distance.
   Future<void> _ensurePosition() async {
-    if (_position != null || _gettingPosition) return;
+    if (_position != null || _gettingPosition) {
+      return;
+    }
     setState(() => _gettingPosition = true);
     try {
       var perm = await Geolocator.checkPermission();
@@ -135,7 +139,9 @@ class _HomePageState extends State<HomePage> {
           accuracy: LocationAccuracy.best,
         ),
       ).timeout(const Duration(seconds: 10));
-      if (mounted) setState(() => _position = pos);
+      if (mounted) {
+        setState(() => _position = pos);
+      }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -143,13 +149,16 @@ class _HomePageState extends State<HomePage> {
         );
       }
     } finally {
-      if (mounted) setState(() => _gettingPosition = false);
+      if (mounted) {
+        setState(() => _gettingPosition = false);
+      }
     }
   }
 
   double _distanceMeters(DeliveryOrder o) {
-    if (_position == null || o.latitude == null || o.longitude == null)
+    if (_position == null || o.latitude == null || o.longitude == null) {
       return double.infinity;
+    }
     return Geolocator.distanceBetween(
       _position!.latitude,
       _position!.longitude,
@@ -187,8 +196,10 @@ class _HomePageState extends State<HomePage> {
         );
         break;
       case SortOption.distance:
-        // Ensure we have a position; sorting continues even if we cannot get it.
-        _ensurePosition();
+        // Schedule a position fetch after the current frame to avoid setState during build.
+        if (_position == null && !_gettingPosition) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => _ensurePosition());
+        }
         list.sort((a, b) => _distanceMeters(a).compareTo(_distanceMeters(b)));
         break;
     }
