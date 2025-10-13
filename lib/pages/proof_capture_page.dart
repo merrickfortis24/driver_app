@@ -20,6 +20,23 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
   bool _uploading = false;
   String? _error;
   final _amountCtrl = TextEditingController();
+  bool _showAmountField = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // Only prompt for amount for COD/unpaid-like statuses; prefill with total
+    final ps = widget.order.paymentStatus.toLowerCase();
+    final isCodOrUnpaid =
+        ps.contains('cod') ||
+        ps.contains('cash') ||
+        ps.contains('unpaid') ||
+        ps.contains('pending');
+    _showAmountField = isCodOrUnpaid;
+    if (_showAmountField) {
+      _amountCtrl.text = widget.order.totalAmount.toStringAsFixed(2);
+    }
+  }
 
   Future<void> _addPhoto(ImageSource src) async {
     try {
@@ -58,7 +75,11 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
         throw Exception('Please add at least one photo as proof of delivery.');
       }
       if (!mounted) return;
-      final amount = double.tryParse(_amountCtrl.text.trim());
+      double? amount;
+      if (_showAmountField) {
+        amount = double.tryParse(_amountCtrl.text.trim());
+        amount ??= widget.order.totalAmount; // fallback to total
+      }
       Navigator.of(context).pop(amount ?? 0);
     } catch (e) {
       setState(() => _error = e.toString());
@@ -92,17 +113,20 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
-            TextField(
-              controller: _amountCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Amount to Collect (PHP)',
-                border: OutlineInputBorder(),
+            if (_showAmountField) ...[
+              TextField(
+                controller: _amountCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Amount Collected (PHP)',
+                  helperText: 'Prefilled with order total',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
               ),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-            ),
-            const SizedBox(height: 8),
+              const SizedBox(height: 8),
+            ],
             Wrap(
               spacing: 8,
               runSpacing: 8,
