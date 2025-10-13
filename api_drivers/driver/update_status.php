@@ -84,7 +84,8 @@ try {
   }
 
   if ($status === 'picked_up') {
-    $pu = $db->prepare("UPDATE orders SET Picked_Up_At = NOW() WHERE Order_ID=?");
+    // Record picked_up event in history table (orders table has no Picked_Up_At column)
+    $pu = $db->prepare("INSERT INTO order_status_history (Order_ID, Event_Type, Occurred_At) VALUES (?, 'picked_up', NOW())");
     $pu->execute([$orderId]);
   }
 
@@ -107,17 +108,23 @@ try {
       }
     }
 
-    // Persist payment received and optional proof filename if schema has column
-    $stamp = $db->prepare("UPDATE orders
-                           SET payment_received_at=NOW(), payment_received_by=?, Proof_Photo = COALESCE(Proof_Photo, ?)
-                           WHERE Order_ID=?");
-    try {
-      $stamp->execute(["Driver #{$driver['Driver_ID']} - {$driver['Name']}", $proofPath, $orderId]);
-    } catch (Throwable $e) {
-      // Fallback when Proof_Photo column doesn't exist
-      $stamp = $db->prepare("UPDATE orders SET payment_received_at=NOW(), payment_received_by=? WHERE Order_ID=?");
-      $stamp->execute(["Driver #{$driver['Driver_ID']} - {$driver['Name']}", $orderId]);
+    // Persist delivered marker and optional proof in order_payment_receipt (orders table has no such columns)
+    $by = "Driver #{$driver['Driver_ID']} - {$driver['Name']}";
+    // Try update first
+    $upr = $db->prepare("UPDATE order_payment_receipt
+                         SET payment_received_at=NOW(), payment_received_by=?, Proof_Photo = COALESCE(Proof_Photo, ?)
+                         WHERE Order_ID=?");
+    $upr->execute([$by, $proofPath, $orderId]);
+    if ($upr->rowCount() === 0) {
+      // If no existing row, insert minimal record (default Status to 'verified')
+      $ins = $db->prepare("INSERT INTO order_payment_receipt (Order_ID, payment_received_at, payment_received_by, Proof_Photo, Status)
+                           VALUES (?, NOW(), ?, ?, 'verified')");
+      $ins->execute([$orderId, $by, $proofPath]);
     }
+
+    // Also record delivered event in history table
+    $del = $db->prepare("INSERT INTO order_status_history (Order_ID, Event_Type, Occurred_At) VALUES (?, 'delivered', NOW())");
+    $del->execute([$orderId]);
 
     $note = $db->prepare("INSERT INTO notifications (Type, Title, Message) VALUES ('', 'Payment Confirmed', ?)");
     $note->execute(["Driver {$driver['Name']} confirmed payment for Order #{$orderId}"]);
