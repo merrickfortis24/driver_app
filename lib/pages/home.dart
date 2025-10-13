@@ -197,11 +197,12 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _orderTile(DeliveryOrder o) {
+    final cs = Theme.of(context).colorScheme;
     final color = _statusColor(o.status);
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       elevation: 0,
-      color: Colors.white,
+      color: cs.surface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
@@ -270,13 +271,13 @@ class _HomePageState extends State<HomePage> {
                   const Icon(
                     Icons.place_outlined,
                     size: 16,
-                    color: Colors.grey,
+                    color: null,
                   ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
                       o.deliveryAddress,
-                      style: const TextStyle(color: Colors.black87),
+                      style: TextStyle(color: cs.onSurface),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -288,7 +289,7 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(height: 6),
                 Text(
                   o.deliveryInstructions!,
-                  style: const TextStyle(color: Colors.grey),
+                  style: TextStyle(color: cs.onSurfaceVariant),
                 ),
               ],
               const SizedBox(height: 10),
@@ -455,15 +456,15 @@ class _HomePageState extends State<HomePage> {
               label: const Text('Active Orders'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: _activeTab == 'active'
-                    ? Colors.white
-                    : Colors.black87,
+                    ? Theme.of(context).colorScheme.onPrimary
+                    : Theme.of(context).colorScheme.onSurface,
                 backgroundColor: _activeTab == 'active'
-                    ? const Color(0xFF6A5AE0)
-                    : Colors.white,
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.surface,
                 side: BorderSide(
                   color: _activeTab == 'active'
-                      ? const Color(0xFF6A5AE0)
-                      : Colors.black12,
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.outline,
                 ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -479,15 +480,15 @@ class _HomePageState extends State<HomePage> {
               label: const Text('History'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: _activeTab == 'history'
-                    ? Colors.white
-                    : Colors.black87,
+                    ? Theme.of(context).colorScheme.onPrimary
+                    : Theme.of(context).colorScheme.onSurface,
                 backgroundColor: _activeTab == 'history'
-                    ? const Color(0xFF6A5AE0)
-                    : Colors.white,
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.surface,
                 side: BorderSide(
                   color: _activeTab == 'history'
-                      ? const Color(0xFF6A5AE0)
-                      : Colors.black12,
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.outline,
                 ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -555,7 +556,7 @@ class _HomePageState extends State<HomePage> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Card(
-                      color: const Color(0xFFF7F7FB),
+                      color: Theme.of(context).colorScheme.surfaceVariant,
                       elevation: 0,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
@@ -569,7 +570,7 @@ class _HomePageState extends State<HomePage> {
                                   ? Icons.inventory_2_outlined
                                   : Icons.history,
                               size: 48,
-                              color: Colors.grey,
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
                             ),
                             const SizedBox(height: 12),
                             Text(
@@ -585,7 +586,7 @@ class _HomePageState extends State<HomePage> {
                               _activeTab == 'active'
                                   ? 'New delivery assignments will appear here'
                                   : 'Completed deliveries will appear here',
-                              style: const TextStyle(color: Colors.black54),
+                              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                               textAlign: TextAlign.center,
                             ),
                           ],
@@ -607,7 +608,7 @@ class _HomePageState extends State<HomePage> {
     );
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
+      backgroundColor: Theme.of(context).colorScheme.background,
       appBar: header,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -631,10 +632,11 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Expanded(
       child: Card(
         elevation: 0,
-        color: Colors.white,
+        color: cs.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         child: Container(
           decoration: BoxDecoration(
@@ -663,7 +665,7 @@ class _StatCard extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 label,
-                style: const TextStyle(fontSize: 12, color: Colors.black54),
+                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
               ),
             ],
           ),
