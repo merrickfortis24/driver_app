@@ -80,6 +80,25 @@ try {
     }
   }
 
+  // Also update the legacy/single proof field for admin visibility
+  if (!empty($stored)) {
+    $first = $stored[0];
+    // Try update existing receipt row
+    $upr = $db->prepare("UPDATE order_payment_receipt
+                         SET payment_received_at = COALESCE(payment_received_at, NOW()),
+                             payment_received_by = COALESCE(payment_received_by, ?),
+                             Proof_Photo = ?
+                         WHERE Order_ID = ?");
+    $by = "Driver #{$driver['Driver_ID']} - {$driver['Name']}";
+    $upr->execute([$by, $first, $orderId]);
+    if ($upr->rowCount() === 0) {
+      // Insert minimal record if not exists (keep 'verified' to mirror delivered flow)
+      $insr = $db->prepare("INSERT INTO order_payment_receipt (Order_ID, payment_received_at, payment_received_by, Proof_Photo, Status)
+                             VALUES (?, NOW(), ?, ?, 'verified')");
+      $insr->execute([$orderId, $by, $first]);
+    }
+  }
+
   $db->commit();
   echo json_encode(['ok'=>true, 'orderId'=>(string)$orderId, 'paths'=>$stored]);
 } catch (Throwable $e) {

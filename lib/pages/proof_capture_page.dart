@@ -2,7 +2,6 @@ import 'dart:typed_data';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:signature/signature.dart';
 import '../services/delivery_api.dart';
 import '../models/delivery.dart';
 
@@ -16,11 +15,6 @@ class ProofCapturePage extends StatefulWidget {
 
 class _ProofCapturePageState extends State<ProofCapturePage> {
   final _picker = ImagePicker();
-  final _sigCtrl = SignatureController(
-    penStrokeWidth: 3,
-    penColor: Colors.black,
-    exportBackgroundColor: Colors.white,
-  );
   final _api = DeliveryApi.instance;
   final List<XFile> _photos = [];
   bool _uploading = false;
@@ -58,12 +52,9 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
           fileNames: names,
         );
       }
-      // Signature
-      Uint8List? png = await _sigCtrl.toPngBytes();
-      if (png != null && png.isNotEmpty) {
-        await _api.uploadSignaturePng(widget.order.id, png);
-      } else {
-        throw Exception('Please capture customer signature.');
+      // Require at least one photo as proof
+      if (photoBytes.isEmpty) {
+        throw Exception('Please add at least one photo as proof of delivery.');
       }
       if (!mounted) return;
       Navigator.of(context).pop(true);
@@ -75,14 +66,10 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
   }
 
   @override
-  void dispose() {
-    _sigCtrl.dispose();
-    super.dispose();
-  }
+  void dispose() { super.dispose(); }
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(title: const Text('Proof of Delivery')),
       body: SingleChildScrollView(
@@ -156,29 +143,8 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
               ],
             ),
             const SizedBox(height: 16),
-            Text(
-              'Customer Signature',
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              height: 200,
-              decoration: BoxDecoration(
-                color: cs.surface,
-                border: Border.all(color: cs.outline),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Signature(
-                controller: _sigCtrl,
-                backgroundColor: cs.surface,
-              ),
-            ),
             Row(
               children: [
-                TextButton(
-                  onPressed: () => _sigCtrl.clear(),
-                  child: const Text('Clear'),
-                ),
                 const Spacer(),
                 ElevatedButton.icon(
                   onPressed: _uploading ? null : _submit,
