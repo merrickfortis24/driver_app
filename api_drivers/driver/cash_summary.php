@@ -39,12 +39,14 @@ $db->exec("CREATE TABLE IF NOT EXISTS driver_cash_remittance (
 function sums($db, $driverId, $scope) {
   $dateFilter = '';
   if ($scope === 'today') {
-    $dateFilter = " AND DATE(p.Payment_Date) = CURRENT_DATE()";
+    // Count collections based on when the driver marked payment received, not when the order/payment was created
+    $dateFilter = " AND DATE(opr.payment_received_at) = CURRENT_DATE()";
   }
-  // COD collected (paid) for this driver, optionally today
+  // COD collected (paid) for this driver, optionally today by receipt time
   $sql = "SELECT COALESCE(SUM(p.Payment_Amount),0) AS total
           FROM payment p
           INNER JOIN orders o ON o.Order_ID = p.Order_ID
+          LEFT JOIN order_payment_receipt opr ON opr.Order_ID = p.Order_ID
           WHERE p.Payment_Method='COD' AND p.payment_status='Paid'
             AND o.Driver_ID = ?
             AND (o.Driver_Status='delivered' OR o.order_status='Delivered')" . $dateFilter;
