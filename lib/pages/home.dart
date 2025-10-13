@@ -26,6 +26,13 @@ class _HomePageState extends State<HomePage> {
   String? _error;
   String _activeTab = 'active'; // 'active' | 'history'
   bool _refreshing = false;
+  
+  // Sorting/Filtering
+  SortOption _sort = SortOption.status;
+  OrderStatus? _activeFilter;   // null = All
+  OrderStatus? _historyFilter;  // null = All
+  Position? _position;          // cached user location for distance sort
+  bool _gettingPosition = false;
 
   @override
   void initState() {
@@ -98,6 +105,105 @@ class _HomePageState extends State<HomePage> {
       if (mounted) {
         setState(() => _refreshing = false);
       }
+    }
+  }
+
+  // Ensure we have a current position when sorting by distance.
+  Future<void> _ensurePosition() async {
+    if (_position != null || _gettingPosition) return;
+    setState(() => _gettingPosition = true);
+    try {
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Location permission denied. Distance sort may be inaccurate.')),
+          );
+        }
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.best),
+      ).timeout(const Duration(seconds: 10));
+      if (mounted) setState(() => _position = pos);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not get current location.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _gettingPosition = false);
+    }
+  }
+
+  double _distanceMeters(DeliveryOrder o) {
+    if (_position == null || o.latitude == null || o.longitude == null) return double.infinity;
+    return Geolocator.distanceBetween(
+      _position!.latitude,
+      _position!.longitude,
+      o.latitude!,
+      o.longitude!,
+    );
+  }
+
+  int _statusRank(OrderStatus s) {
+    switch (s) {
+      case OrderStatus.assigned:
+        return 0;
+      case OrderStatus.accepted:
+        return 1;
+      case OrderStatus.onTheWay:
+        return 2;
+      case OrderStatus.pickedUp:
+        return 3;
+      case OrderStatus.delivered:
+        return 4;
+      case OrderStatus.rejected:
+        return 5;
+    }
+  }
+
+  List<DeliveryOrder> _applySort(List<DeliveryOrder> items) {
+    final list = [...items];
+    switch (_sort) {
+      case SortOption.amount:
+        list.sort((a, b) => b.totalAmount.compareTo(a.totalAmount));
+        break;
+      case SortOption.status:
+        list.sort((a, b) => _statusRank(a.status).compareTo(_statusRank(b.status)));
+        break;
+      case SortOption.distance:
+        // Ensure we have a position; sorting continues even if we cannot get it.
+        _ensurePosition();
+        list.sort((a, b) => _distanceMeters(a).compareTo(_distanceMeters(b)));
+        break;
+    }
+    return list;
+  }
+
+  String _sortLabel(SortOption s) {
+    switch (s) {
+      case SortOption.distance:
+        return 'Distance';
+      case SortOption.amount:
+        return 'Amount';
+      case SortOption.status:
+        return 'Status';
+    }
+  }
+
+  IconData _sortIcon(SortOption s) {
+    switch (s) {
+      case SortOption.distance:
+        return Icons.place_outlined;
+      case SortOption.amount:
+        return Icons.attach_money;
+      case SortOption.status:
+        return Icons.flag_outlined;
     }
   }
 
@@ -496,6 +602,71 @@ class _HomePageState extends State<HomePage> {
       ),
     );
 
+    // Sort and Filter controls
+    final sortAndFilter = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              PopupMenuButton<SortOption>(
+                tooltip: 'Sort',
+                onSelected: (v) => setState(() => _sort = v),
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: SortOption.distance, child: ListTile(leading: Icon(Icons.place_outlined), title: Text('Distance (nearest)'))),
+                  PopupMenuItem(value: SortOption.amount, child: ListTile(leading: Icon(Icons.attach_money), title: Text('Amount (highest)'))),
+                  PopupMenuItem(value: SortOption.status, child: ListTile(leading: Icon(Icons.flag_outlined), title: Text('Status'))),
+                ],
+                child: OutlinedButton.icon(
+                  onPressed: null, // triggers popup by parent
+                  icon: Icon(_sortIcon(_sort)),
+                  label: Text('Sort: ${_sortLabel(_sort)}'),
+                ),
+              ),
+              const Spacer(),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: (
+                _activeTab == 'active'
+                    ? const [
+                        OrderStatus.assigned,
+                        OrderStatus.accepted,
+                        OrderStatus.onTheWay,
+                        OrderStatus.pickedUp,
+                      ]
+                    : const [
+                        OrderStatus.delivered,
+                        OrderStatus.rejected,
+                      ]
+              )
+                  .map((s) => Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(_statusText(s)),
+                          selected: (_activeTab == 'active' ? _activeFilter : _historyFilter) == s,
+                          onSelected: (sel) {
+                            setState(() {
+                              if (_activeTab == 'active') {
+                                _activeFilter = sel ? s : null;
+                              } else {
+                                _historyFilter = sel ? s : null;
+                              }
+                            });
+                          },
+                        ),
+                      ))
+                  .toList(),
+            ),
+          ),
+        ],
+      ),
+    );
+
     final list = Expanded(
       child: RefreshIndicator(
         onRefresh: _refresh,
@@ -527,7 +698,7 @@ class _HomePageState extends State<HomePage> {
               );
             }
 
-            final items = _activeTab == 'active'
+            var items = _activeTab == 'active'
                 ? _orders
                       .where(
                         (o) =>
@@ -544,6 +715,16 @@ class _HomePageState extends State<HomePage> {
                             o.status == OrderStatus.rejected,
                       )
                       .toList();
+
+            // Apply status filters
+            if (_activeTab == 'active' && _activeFilter != null) {
+              items = items.where((o) => o.status == _activeFilter).toList();
+            } else if (_activeTab == 'history' && _historyFilter != null) {
+              items = items.where((o) => o.status == _historyFilter).toList();
+            }
+
+            // Apply sorting
+            items = _applySort(items);
 
             if (items.isEmpty) {
               return ListView(
@@ -616,11 +797,13 @@ class _HomePageState extends State<HomePage> {
       appBar: header,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [stats, tabs, list],
+        children: [stats, tabs, sortAndFilter, list],
       ),
     );
   }
 }
+
+enum SortOption { distance, amount, status }
 
 class _StatCard extends StatelessWidget {
   final IconData icon;
