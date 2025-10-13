@@ -66,7 +66,9 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
   }
 
   @override
-  void dispose() { super.dispose(); }
+  void dispose() {
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
