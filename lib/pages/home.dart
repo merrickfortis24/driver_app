@@ -190,7 +190,7 @@ class _HomePageState extends State<HomePage> {
     if (d.inMinutes < 60) return '${d.inMinutes} min';
     final h = d.inHours;
     final m = d.inMinutes % 60;
-    return m == 0 ? '${h} h' : '${h} h ${m} min';
+    return m == 0 ? '$h h' : '$h h $m min';
   }
 
   int _statusRank(OrderStatus s) {
@@ -439,8 +439,9 @@ class _HomePageState extends State<HomePage> {
               Builder(
                 builder: (_) {
                   final dist = _distanceMeters(o);
-                  if (dist.isInfinite || dist.isNaN)
+                  if (dist.isInfinite || dist.isNaN) {
                     return const SizedBox.shrink();
+                  }
                   final eta = _etaFromMeters(dist);
                   final distText = _formatDistance(dist);
                   final etaText = _formatEta(eta);
