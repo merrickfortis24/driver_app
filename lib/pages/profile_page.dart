@@ -109,7 +109,11 @@ class _ProfilePageState extends State<ProfilePage> {
                               const SizedBox(height: 4),
                               Text(
                                 _driver!.email,
-                                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                                style: TextStyle(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                                ),
                               ),
                             ],
                           ),
@@ -251,7 +255,12 @@ class _Row extends StatelessWidget {
         children: [
           SizedBox(
             width: 120,
-            child: Text(label, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
           ),
           const SizedBox(width: 8),
           Expanded(child: Text(value)),

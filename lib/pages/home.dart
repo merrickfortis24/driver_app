@@ -268,11 +268,7 @@ class _HomePageState extends State<HomePage> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(
-                    Icons.place_outlined,
-                    size: 16,
-                    color: null,
-                  ),
+                  const Icon(Icons.place_outlined, size: 16, color: null),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -570,7 +566,9 @@ class _HomePageState extends State<HomePage> {
                                   ? Icons.inventory_2_outlined
                                   : Icons.history,
                               size: 48,
-                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
                             ),
                             const SizedBox(height: 12),
                             Text(
@@ -586,7 +584,11 @@ class _HomePageState extends State<HomePage> {
                               _activeTab == 'active'
                                   ? 'New delivery assignments will appear here'
                                   : 'Completed deliveries will appear here',
-                              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                              style: TextStyle(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
                               textAlign: TextAlign.center,
                             ),
                           ],
