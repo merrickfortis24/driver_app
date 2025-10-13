@@ -56,5 +56,64 @@ if (!empty($_FILES['proof']['tmp_name'])) {
 $ins = $db->prepare('INSERT INTO driver_cash_remittance (Driver_ID, Amount, Note, Proof_Path) VALUES (?, ?, ?, ?)');
 $ins->execute([$driverId, $amount, $note, $proof]);
 
-// response with updated summary
-require __DIR__ . '/cash_summary.php';
+// Build response with updated summary (avoid requiring cash_summary.php to prevent function/header redeclare)
+// Today totals by receipt time (order_payment_receipt.payment_received_at)
+function _sumCollected($db, $driverId, $scope) {
+  $dateFilter = '';
+  if ($scope === 'today') {
+    $dateFilter = " AND DATE(opr.payment_received_at) = CURRENT_DATE()";
+  }
+  $sql = "SELECT COALESCE(SUM(p.Payment_Amount),0) AS total
+          FROM payment p
+          INNER JOIN orders o ON o.Order_ID = p.Order_ID
+          LEFT JOIN order_payment_receipt opr ON opr.Order_ID = p.Order_ID
+          WHERE p.Payment_Method='COD' AND p.payment_status='Paid'
+            AND o.Driver_ID = ?
+            AND (o.Driver_Status='delivered' OR o.order_status='Delivered')" . $dateFilter;
+  $q = $db->prepare($sql);
+  $q->execute([$driverId]);
+  $row = $q->fetch(PDO::FETCH_ASSOC);
+  return (float)($row['total'] ?? 0);
+}
+
+$todayCollected = _sumCollected($db, $driverId, 'today');
+$allCollected = _sumCollected($db, $driverId, 'all');
+
+$qRemToday = $db->prepare("SELECT COALESCE(SUM(Amount),0) AS total FROM driver_cash_remittance WHERE Driver_ID=? AND DATE(Created_At)=CURRENT_DATE()");
+$qRemToday->execute([$driverId]);
+$todayRem = (float)($qRemToday->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
+
+$qRemAll = $db->prepare("SELECT COALESCE(SUM(Amount),0) AS total FROM driver_cash_remittance WHERE Driver_ID=?");
+$qRemAll->execute([$driverId]);
+$allRem = (float)($qRemAll->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
+
+$today = [
+  'collected' => $todayCollected,
+  'remitted' => $todayRem,
+  'cashInHand' => max($todayCollected - $todayRem, 0),
+];
+$all = [
+  'collected' => $allCollected,
+  'remitted' => $allRem,
+  'cashInHand' => max($allCollected - $allRem, 0),
+];
+
+// recent remittances
+$rec = $db->prepare('SELECT Remittance_ID, Amount, Note, Proof_Path, Created_At FROM driver_cash_remittance WHERE Driver_ID=? ORDER BY Created_At DESC LIMIT 10');
+$rec->execute([$driverId]);
+$rows = $rec->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+echo json_encode([
+  'ok' => true,
+  'today' => $today,
+  'allTime' => $all,
+  'remittances' => array_map(function($r){
+    return [
+      'id' => (int)$r['Remittance_ID'],
+      'amount' => (float)$r['Amount'],
+      'note' => $r['Note'],
+      'proof' => $r['Proof_Path'],
+      'createdAt' => $r['Created_At'],
+    ];
+  }, $rows),
+]);
