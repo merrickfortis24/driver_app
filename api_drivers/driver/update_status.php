@@ -21,6 +21,12 @@ $input = file_get_contents('php://input');
 $data = json_decode($input, true);
 $orderId = isset($data['orderId']) ? $data['orderId'] : ($_POST['orderId'] ?? null);
 $status = isset($data['status']) ? $data['status'] : ($_POST['status'] ?? null);
+$collectedAmount = null;
+if (isset($data['collectedAmount'])) {
+  $collectedAmount = is_numeric($data['collectedAmount']) ? floatval($data['collectedAmount']) : null;
+} elseif (isset($_POST['collectedAmount'])) {
+  $collectedAmount = is_numeric($_POST['collectedAmount']) ? floatval($_POST['collectedAmount']) : null;
+}
 
 if (!$orderId || !$status) { http_response_code(400); echo json_encode(['error'=>'missing_fields']); exit; }
 
@@ -128,6 +134,18 @@ try {
 
     $note = $db->prepare("INSERT INTO notifications (Type, Title, Message) VALUES ('', 'Payment Confirmed', ?)");
     $note->execute(["Driver {$driver['Name']} confirmed payment for Order #{$orderId}"]);
+
+    // If a collectedAmount is provided, and the order payment method is COD, mark as Paid and set amount
+    if ($collectedAmount !== null && $collectedAmount > 0) {
+      $pm = $db->prepare('SELECT Payment_Method FROM payment WHERE Order_ID=? LIMIT 1');
+      $pm->execute([$orderId]);
+      $prow = $pm->fetch(PDO::FETCH_ASSOC);
+      $method = strtolower($prow['Payment_Method'] ?? '');
+      if ($method === 'cod' || $method === '') {
+        $updPay = $db->prepare("UPDATE payment SET payment_status='Paid', Payment_Amount=? WHERE Order_ID=? AND (Payment_Method='COD' OR Payment_Method IS NULL OR Payment_Method='')");
+        $updPay->execute([$collectedAmount, $orderId]);
+      }
+    }
   }
 
   // Fetch current persisted values regardless of whether MySQL returned 0 affected rows (could be same value)
@@ -141,6 +159,7 @@ try {
     'orderId'=>(string)$orderId,
     'requestedStatus'=>$status,
     'mappedOrderStatus'=>$dbStatus,
+    'collectedAmount'=>$collectedAmount,
     'assignRows'=>$assignAffected,
     'statusRows'=>$statusAffected,
     'current'=>$currentRow,

@@ -339,12 +339,17 @@ class _HomePageState extends State<HomePage> {
         actions.add(
           TextButton(
             onPressed: () async {
-              // Collect proofs and signature before marking delivered
-              final ok = await Navigator.of(context).push<bool>(
+              // Collect proofs and amount before marking delivered
+              final amount = await Navigator.of(context).push<double>(
                 MaterialPageRoute(builder: (_) => ProofCapturePage(order: o)),
               );
-              if (ok == true) {
-                await _api.updateOrderStatus(o.id, OrderStatus.delivered);
+              // amount will be null if user cancelled the screen
+              if (amount != null) {
+                await _api.updateOrderStatus(
+                  o.id,
+                  OrderStatus.delivered,
+                  collectedAmount: amount,
+                );
                 if (mounted) _refresh();
               }
             },

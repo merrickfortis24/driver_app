@@ -209,7 +209,7 @@ class DeliveryApi {
     }).toList();
   }
 
-  Future<bool> updateOrderStatus(String orderId, OrderStatus status) async {
+  Future<bool> updateOrderStatus(String orderId, OrderStatus status, {double? collectedAmount}) async {
     final token = await _getToken();
     if (token == null || token.isEmpty) return false;
     final uri = Uri.parse(API.updateStatus);
@@ -230,6 +230,10 @@ class DeliveryApi {
       }
     }();
 
+    final body = <String, dynamic>{'orderId': orderId, 'status': statusStr};
+    if (collectedAmount != null && collectedAmount > 0) {
+      body['collectedAmount'] = collectedAmount;
+    }
     final res = await http
         .post(
           uri,
@@ -238,7 +242,7 @@ class DeliveryApi {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer $token',
           },
-          body: json.encode({'orderId': orderId, 'status': statusStr}),
+          body: json.encode(body),
         )
         .timeout(const Duration(seconds: 20));
 
@@ -255,9 +259,9 @@ class DeliveryApi {
   }
 
   Future<bool> acceptOrder(String orderId) =>
-      updateOrderStatus(orderId, OrderStatus.accepted);
+    updateOrderStatus(orderId, OrderStatus.accepted);
   Future<bool> rejectOrder(String orderId) =>
-      updateOrderStatus(orderId, OrderStatus.rejected);
+    updateOrderStatus(orderId, OrderStatus.rejected);
 
   Future<List<String>> uploadProofPhotos(
     String orderId,

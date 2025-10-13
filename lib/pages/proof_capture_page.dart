@@ -19,6 +19,7 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
   final List<XFile> _photos = [];
   bool _uploading = false;
   String? _error;
+  final _amountCtrl = TextEditingController();
 
   Future<void> _addPhoto(ImageSource src) async {
     try {
@@ -57,7 +58,8 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
         throw Exception('Please add at least one photo as proof of delivery.');
       }
       if (!mounted) return;
-      Navigator.of(context).pop(true);
+      final amount = double.tryParse(_amountCtrl.text.trim());
+      Navigator.of(context).pop(amount ?? 0);
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
@@ -67,6 +69,7 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
 
   @override
   void dispose() {
+    _amountCtrl.dispose();
     super.dispose();
   }
 
@@ -85,8 +88,17 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
                 child: Text(_error!, style: const TextStyle(color: Colors.red)),
               ),
             Text(
-              'Photos (optional, up to 5)',
+              'Photos (at least 1, up to 5)',
               style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _amountCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Amount to Collect (PHP)',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
             ),
             const SizedBox(height: 8),
             Wrap(

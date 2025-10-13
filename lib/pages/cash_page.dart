@@ -1,6 +1,4 @@
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import '../services/delivery_api.dart';
 
 class CashPage extends StatefulWidget {
@@ -15,10 +13,7 @@ class _CashPageState extends State<CashPage> {
   bool _loading = true;
   String? _error;
   Map<String, dynamic>? _data;
-  final _amountCtrl = TextEditingController();
-  final _noteCtrl = TextEditingController();
-  Uint8List? _photo;
-  bool _submitting = false;
+  // Remittance submission removed per new spec: only metrics + recent remittances
 
   @override
   void initState() {
@@ -41,63 +36,13 @@ class _CashPageState extends State<CashPage> {
     }
   }
 
-  Future<void> _pickPhoto() async {
-    final picker = ImagePicker();
-    final img = await picker.pickImage(
-      source: ImageSource.camera,
-      imageQuality: 85,
-    );
-    if (img != null) {
-      setState(() async {
-        _photo = await img.readAsBytes();
-      });
-    }
-  }
-
-  Future<void> _submit() async {
-    final v = double.tryParse(_amountCtrl.text.trim());
-    if (v == null || v <= 0) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Enter a valid amount')));
-      return;
-    }
-    setState(() {
-      _submitting = true;
-      _error = null;
-    });
-    try {
-      final res = await _api.submitRemittance(
-        amount: v,
-        note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
-        proofJpeg: _photo,
-      );
-      setState(() {
-        _data = res;
-        _amountCtrl.clear();
-        _noteCtrl.clear();
-        _photo = null;
-      });
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Remittance submitted')));
-    } catch (e) {
-      setState(() {
-        _error = e.toString();
-      });
-    } finally {
-      setState(() {
-        _submitting = false;
-      });
-    }
-  }
+  // Submit/pick photo removed
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Cash & Remittance')),
+  appBar: AppBar(title: const Text('Cash')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -145,59 +90,7 @@ class _CashPageState extends State<CashPage> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Text(
-                    'Submit Remittance',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
                   const SizedBox(height: 8),
-                  TextField(
-                    controller: _amountCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Amount (PHP)',
-                      border: OutlineInputBorder(),
-                    ),
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _noteCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Note (optional)',
-                      border: OutlineInputBorder(),
-                    ),
-                    maxLines: 2,
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: _pickPhoto,
-                        icon: const Icon(Icons.photo_camera),
-                        label: const Text('Add Proof Photo (optional)'),
-                      ),
-                      const SizedBox(width: 12),
-                      if (_photo != null)
-                        const Icon(Icons.check_circle, color: Colors.green),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: ElevatedButton.icon(
-                      onPressed: _submitting ? null : _submit,
-                      icon: _submitting
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.send),
-                      label: const Text('Submit'),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
                   Text(
                     'Recent Remittances',
                     style: const TextStyle(fontWeight: FontWeight.w600),
