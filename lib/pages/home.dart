@@ -33,6 +33,8 @@ class _HomePageState extends State<HomePage> {
   OrderStatus? _historyFilter; // null = All
   Position? _position; // cached user location for distance sort
   bool _gettingPosition = false;
+  bool _positionRequestedOnce = false; // avoid rescheduling multiple times per frame
+  static const double _avgSpeedKmh = 25; // rough urban average for ETA
 
   @override
   void initState() {
@@ -165,6 +167,29 @@ class _HomePageState extends State<HomePage> {
       o.latitude!,
       o.longitude!,
     );
+  }
+
+  Duration _etaFromMeters(double meters) {
+    if (meters.isInfinite || meters.isNaN) return Duration.zero;
+    final mps = _avgSpeedKmh * 1000 / 3600; // meters per second
+    if (mps <= 0) return Duration.zero;
+    final secs = (meters / mps).round();
+    return Duration(seconds: secs);
+  }
+
+  String _formatDistance(double meters) {
+    if (meters.isInfinite || meters.isNaN) return '';
+    if (meters < 1000) return '${meters.toStringAsFixed(0)} m';
+    return '${(meters / 1000).toStringAsFixed(1)} km';
+  }
+
+  String _formatEta(Duration d) {
+    if (d == Duration.zero) return '';
+    if (d.inMinutes < 1) return '<1 min';
+    if (d.inMinutes < 60) return '${d.inMinutes} min';
+    final h = d.inHours;
+    final m = d.inMinutes % 60;
+    return m == 0 ? '${h} h' : '${h} h ${m} min';
   }
 
   int _statusRank(OrderStatus s) {
@@ -409,6 +434,30 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ],
               ),
+              // Distance + ETA
+              Builder(
+                builder: (_) {
+                  final dist = _distanceMeters(o);
+                  if (dist.isInfinite || dist.isNaN) return const SizedBox.shrink();
+                  final eta = _etaFromMeters(dist);
+                  final distText = _formatDistance(dist);
+                  final etaText = _formatEta(eta);
+                  final showEta = etaText.isNotEmpty;
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Row(
+                      children: [
+                        Icon(Icons.near_me_outlined, size: 16, color: cs.onSurfaceVariant),
+                        const SizedBox(width: 6),
+                        Text(
+                          showEta ? '$distText • ~$etaText' : distText,
+                          style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
               if (o.deliveryInstructions != null &&
                   o.deliveryInstructions!.isNotEmpty) ...[
                 const SizedBox(height: 6),
@@ -443,6 +492,16 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    // If we plan to show distance on cards and we don't have a position yet,
+    // request it after this frame (avoids setState during build).
+    if (_position == null && !_gettingPosition && !_positionRequestedOnce) {
+      _positionRequestedOnce = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _ensurePosition();
+        // allow future re-requests if it failed or permissions change
+        _positionRequestedOnce = false;
+      });
+    }
     final header = PreferredSize(
       preferredSize: const Size.fromHeight(110),
       child: AppBar(
