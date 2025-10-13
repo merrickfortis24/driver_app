@@ -180,7 +180,10 @@ class _ProfilePageState extends State<ProfilePage> {
                               : '-',
                         ),
                         const SizedBox(height: 16),
-                        const Text('Appearance', style: TextStyle(fontWeight: FontWeight.w700)),
+                        const Text(
+                          'Appearance',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
                         const SizedBox(height: 8),
                         ValueListenableBuilder<ThemeMode>(
                           valueListenable: theme.mode,
@@ -190,9 +193,21 @@ class _ProfilePageState extends State<ProfilePage> {
                                 Expanded(
                                   child: SegmentedButton<ThemeMode>(
                                     segments: const [
-                                      ButtonSegment(value: ThemeMode.light, icon: Icon(Icons.light_mode), label: Text('Light')),
-                                      ButtonSegment(value: ThemeMode.dark, icon: Icon(Icons.dark_mode), label: Text('Dark')),
-                                      ButtonSegment(value: ThemeMode.system, icon: Icon(Icons.phone_android), label: Text('System')),
+                                      ButtonSegment(
+                                        value: ThemeMode.light,
+                                        icon: Icon(Icons.light_mode),
+                                        label: Text('Light'),
+                                      ),
+                                      ButtonSegment(
+                                        value: ThemeMode.dark,
+                                        icon: Icon(Icons.dark_mode),
+                                        label: Text('Dark'),
+                                      ),
+                                      ButtonSegment(
+                                        value: ThemeMode.system,
+                                        icon: Icon(Icons.phone_android),
+                                        label: Text('System'),
+                                      ),
                                     ],
                                     selected: {mode},
                                     onSelectionChanged: (s) {

@@ -6,7 +6,9 @@ class ThemeController {
   static final ThemeController instance = ThemeController._();
 
   static const _prefKey = 'themeMode'; // values: light | dark | system
-  final ValueNotifier<ThemeMode> mode = ValueNotifier<ThemeMode>(ThemeMode.light);
+  final ValueNotifier<ThemeMode> mode = ValueNotifier<ThemeMode>(
+    ThemeMode.light,
+  );
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -35,7 +37,9 @@ class ThemeController {
   }
 
   Future<void> toggleLightDark() async {
-    final next = mode.value == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+    final next = mode.value == ThemeMode.dark
+        ? ThemeMode.light
+        : ThemeMode.dark;
     await set(next);
   }
 }
