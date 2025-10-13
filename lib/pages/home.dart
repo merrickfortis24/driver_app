@@ -33,7 +33,8 @@ class _HomePageState extends State<HomePage> {
   OrderStatus? _historyFilter; // null = All
   Position? _position; // cached user location for distance sort
   bool _gettingPosition = false;
-  bool _positionRequestedOnce = false; // avoid rescheduling multiple times per frame
+  bool _positionRequestedOnce =
+      false; // avoid rescheduling multiple times per frame
   static const double _avgSpeedKmh = 25; // rough urban average for ETA
 
   @override
@@ -438,7 +439,8 @@ class _HomePageState extends State<HomePage> {
               Builder(
                 builder: (_) {
                   final dist = _distanceMeters(o);
-                  if (dist.isInfinite || dist.isNaN) return const SizedBox.shrink();
+                  if (dist.isInfinite || dist.isNaN)
+                    return const SizedBox.shrink();
                   final eta = _etaFromMeters(dist);
                   final distText = _formatDistance(dist);
                   final etaText = _formatEta(eta);
@@ -447,11 +449,18 @@ class _HomePageState extends State<HomePage> {
                     padding: const EdgeInsets.only(top: 6),
                     child: Row(
                       children: [
-                        Icon(Icons.near_me_outlined, size: 16, color: cs.onSurfaceVariant),
+                        Icon(
+                          Icons.near_me_outlined,
+                          size: 16,
+                          color: cs.onSurfaceVariant,
+                        ),
                         const SizedBox(width: 6),
                         Text(
                           showEta ? '$distText • ~$etaText' : distText,
-                          style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+                          style: TextStyle(
+                            color: cs.onSurfaceVariant,
+                            fontSize: 12,
+                          ),
                         ),
                       ],
                     ),
