@@ -281,8 +281,10 @@ class DeliveryApi {
       throw UnauthorizedException('Unauthorized');
     }
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw ApiException('profile_http_${res.statusCode}: ${res.body}',
-          statusCode: res.statusCode);
+      throw ApiException(
+        'profile_http_${res.statusCode}: ${res.body}',
+        statusCode: res.statusCode,
+      );
     }
     dynamic jsonBody;
     try {
@@ -294,6 +296,7 @@ class DeliveryApi {
     DateTime? parseDate(dynamic v) {
       return _safeDate(v);
     }
+
     final statusStr = (d['status'] ?? '').toString().toLowerCase();
     final isActive = statusStr.isEmpty || statusStr == 'active';
     return Driver(
