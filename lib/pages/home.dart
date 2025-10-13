@@ -198,7 +198,9 @@ class _HomePageState extends State<HomePage> {
       case SortOption.distance:
         // Schedule a position fetch after the current frame to avoid setState during build.
         if (_position == null && !_gettingPosition) {
-          WidgetsBinding.instance.addPostFrameCallback((_) => _ensurePosition());
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _ensurePosition(),
+          );
         }
         list.sort((a, b) => _distanceMeters(a).compareTo(_distanceMeters(b)));
         break;
