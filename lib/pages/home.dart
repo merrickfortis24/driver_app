@@ -9,6 +9,7 @@ import '../services/delivery_exceptions.dart';
 import 'login.dart';
 import 'map_page.dart';
 import 'profile_page.dart';
+import 'proof_capture_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -337,8 +338,14 @@ class _HomePageState extends State<HomePage> {
         actions.add(
           TextButton(
             onPressed: () async {
-              await _api.updateOrderStatus(o.id, OrderStatus.delivered);
-              _refresh();
+              // Collect proofs and signature before marking delivered
+              final ok = await Navigator.of(context).push<bool>(
+                MaterialPageRoute(builder: (_) => ProofCapturePage(order: o)),
+              );
+              if (ok == true) {
+                await _api.updateOrderStatus(o.id, OrderStatus.delivered);
+                if (mounted) _refresh();
+              }
             },
             child: const Text('Delivered'),
           ),

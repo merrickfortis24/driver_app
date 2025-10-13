@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../api_connection/api_connection.dart';
 import '../models/delivery.dart';
 import 'delivery_exceptions.dart';
 import 'package:logging/logging.dart';
+import 'package:http_parser/http_parser.dart';
 
 class DeliveryApi {
   DeliveryApi._();
@@ -255,6 +257,76 @@ class DeliveryApi {
       updateOrderStatus(orderId, OrderStatus.accepted);
   Future<bool> rejectOrder(String orderId) =>
       updateOrderStatus(orderId, OrderStatus.rejected);
+
+  Future<List<String>> uploadProofPhotos(
+    String orderId,
+    List<Uint8List> files, {
+    List<String>? fileNames,
+  }) async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) {
+      throw UnauthorizedException('missing_token');
+    }
+    final uri = Uri.parse(API.uploadProofs);
+    final req = http.MultipartRequest('POST', uri);
+    req.headers.addAll({'Authorization': 'Bearer $token'});
+    req.fields['orderId'] = orderId;
+    for (var i = 0; i < files.length; i++) {
+      final name = (fileNames != null && i < fileNames.length)
+          ? fileNames[i]
+          : 'proof_$i.jpg';
+      req.files.add(
+        http.MultipartFile.fromBytes(
+          'photos[]',
+          files[i],
+          filename: name,
+          contentType: MediaType('image', 'jpeg'),
+        ),
+      );
+    }
+    final res = await http.Response.fromStream(
+      await req.send(),
+    ).timeout(const Duration(seconds: 30));
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw ApiException(
+        'upload_proofs_http_${res.statusCode}: ${res.body}',
+        statusCode: res.statusCode,
+      );
+    }
+    final body = json.decode(res.body);
+    final List<dynamic> paths = body['paths'] ?? [];
+    return paths.map((e) => e.toString()).toList();
+  }
+
+  Future<String> uploadSignaturePng(String orderId, Uint8List pngBytes) async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) {
+      throw UnauthorizedException('missing_token');
+    }
+    final uri = Uri.parse(API.uploadSignature);
+    final req = http.MultipartRequest('POST', uri);
+    req.headers.addAll({'Authorization': 'Bearer $token'});
+    req.fields['orderId'] = orderId;
+    req.files.add(
+      http.MultipartFile.fromBytes(
+        'signature',
+        pngBytes,
+        filename: 'signature.png',
+        contentType: MediaType('image', 'png'),
+      ),
+    );
+    final res = await http.Response.fromStream(
+      await req.send(),
+    ).timeout(const Duration(seconds: 30));
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw ApiException(
+        'upload_signature_http_${res.statusCode}: ${res.body}',
+        statusCode: res.statusCode,
+      );
+    }
+    final body = json.decode(res.body);
+    return (body['path'] ?? '').toString();
+  }
 
   Future<Driver> fetchProfile() async {
     final token = await _getToken();
