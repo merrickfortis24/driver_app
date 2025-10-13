@@ -98,7 +98,9 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
                 labelText: 'Amount to Collect (PHP)',
                 border: OutlineInputBorder(),
               ),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
             ),
             const SizedBox(height: 8),
             Wrap(

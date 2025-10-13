@@ -42,7 +42,7 @@ class _CashPageState extends State<CashPage> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-  appBar: AppBar(title: const Text('Cash')),
+      appBar: AppBar(title: const Text('Cash')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
