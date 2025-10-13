@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 import 'pages/login.dart';
+import 'services/theme_controller.dart';
 
 void main() {
   // Simple logging configuration for development. In production you may
@@ -15,7 +16,12 @@ void main() {
     );
   });
 
-  runApp(const MyApp());
+  final theme = ThemeController.instance;
+  // Load saved theme before running the app
+  WidgetsFlutterBinding.ensureInitialized();
+  theme.load().then((_) {
+    runApp(const MyApp());
+  });
 }
 
 class MyApp extends StatelessWidget {
@@ -24,27 +30,25 @@ class MyApp extends StatelessWidget {
   // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const LoginPage(),
+    final theme = ThemeController.instance;
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: theme.mode,
+      builder: (context, mode, _) {
+        return MaterialApp(
+          title: 'Nai Tsa Driver',
+          themeMode: mode,
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+            scaffoldBackgroundColor: const Color(0xFFF5F6FA),
+            useMaterial3: true,
+          ),
+          darkTheme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo, brightness: Brightness.dark),
+            useMaterial3: true,
+          ),
+          home: const LoginPage(),
+        );
+      },
     );
   }
 }

@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/delivery.dart';
 import '../services/delivery_api.dart';
+import '../services/theme_controller.dart';
 import 'login.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -55,6 +56,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = ThemeController.instance;
     return Scaffold(
       appBar: AppBar(title: const Text('My Profile')),
       body: _loading
@@ -176,6 +178,33 @@ class _ProfilePageState extends State<ProfilePage> {
                           _driver!.tokenExpires != null
                               ? _df.format(_driver!.tokenExpires!)
                               : '-',
+                        ),
+                        const SizedBox(height: 16),
+                        const Text('Appearance', style: TextStyle(fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 8),
+                        ValueListenableBuilder<ThemeMode>(
+                          valueListenable: theme.mode,
+                          builder: (context, mode, _) {
+                            return Row(
+                              children: [
+                                Expanded(
+                                  child: SegmentedButton<ThemeMode>(
+                                    segments: const [
+                                      ButtonSegment(value: ThemeMode.light, icon: Icon(Icons.light_mode), label: Text('Light')),
+                                      ButtonSegment(value: ThemeMode.dark, icon: Icon(Icons.dark_mode), label: Text('Dark')),
+                                      ButtonSegment(value: ThemeMode.system, icon: Icon(Icons.phone_android), label: Text('System')),
+                                    ],
+                                    selected: {mode},
+                                    onSelectionChanged: (s) {
+                                      if (s.isNotEmpty) {
+                                        theme.set(s.first);
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
                       ],
                     ),
