@@ -396,17 +396,6 @@ class _HomePageState extends State<HomePage> {
                           )
                         : const Icon(Icons.refresh, color: Colors.white),
                   ),
-                  IconButton(
-                    onPressed: () async {
-                      // simple logout: clear token and go to LoginPage
-                      // ignore: use_build_context_synchronously
-                      Navigator.of(context).pushAndRemoveUntil(
-                        MaterialPageRoute(builder: (_) => const LoginPage()),
-                        (route) => false,
-                      );
-                    },
-                    icon: const Icon(Icons.logout, color: Colors.white),
-                  ),
                 ],
               ),
             ),
