@@ -13,7 +13,8 @@ import 'proof_capture_page.dart';
 import 'cash_page.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  final String initialTab;
+  const HomePage({super.key, this.initialTab = 'active'});
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -42,6 +43,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    _activeTab = widget.initialTab;
     _load();
   }
 

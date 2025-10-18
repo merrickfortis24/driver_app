@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../api_connection/api_connection.dart';
 
-import 'home.dart';
+import 'main_shell.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -56,7 +56,7 @@ class _LoginPageState extends State<LoginPage> {
           if (!mounted) return;
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (_) => const HomePage()),
+            MaterialPageRoute(builder: (_) => const MainShell()),
           );
         } else {
           setState(
