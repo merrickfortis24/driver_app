@@ -50,11 +50,7 @@ class MyApp extends StatelessWidget {
             ),
             useMaterial3: true,
           ),
-          // Ensure the overlay wraps every route by using the builder.
-          builder: (context, child) => MotorcycleAnimationOverlay(
-            child: child ?? const SizedBox.shrink(),
-          ),
-          home: const SplashPage(),
+          home: MotorcycleAnimationOverlay(child: const SplashPage()),
         );
       },
     );
