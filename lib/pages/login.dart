@@ -55,12 +55,7 @@ class _LoginPageState extends State<LoginPage> {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('token', token);
           // Play motorcycle animation on successful login
-          // Use a larger size and prefer a Lottie animation if available; play a sound if provided.
-          MotorcycleAnimationService.instance.show(
-            size: 96.0,
-            useLottie: true,
-            soundAsset: 'assets/sfx/moto.mp3',
-          );
+          MotorcycleAnimationService.instance.show();
           if (!mounted) return;
           Navigator.pushReplacement(
             context,

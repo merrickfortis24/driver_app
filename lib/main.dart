@@ -3,8 +3,6 @@ import 'package:logging/logging.dart';
 import 'pages/login.dart';
 import 'services/theme_controller.dart';
 import 'services/animation_controller.dart';
-import 'package:audioplayers/audioplayers.dart';
-import 'package:lottie/lottie.dart';
 
 void main() {
   // Simple logging configuration for development.
@@ -75,35 +73,27 @@ class MotorcycleAnimationOverlay extends StatefulWidget {
 class _MotorcycleAnimationOverlayState extends State<MotorcycleAnimationOverlay>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
-  late final Animation<double> _t;
+  late final Animation<Offset> _pos;
   int _last = 0;
-  // optional sound player and lottie support are lazy-loaded when needed
-  AudioPlayer? _player;
-  final bool _lottieAvailable = true; // we included lottie package
 
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
+      duration: const Duration(milliseconds: 900),
     );
-    _t = CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut);
-    _player = AudioPlayer();
+    _pos = Tween(
+      begin: const Offset(-1.2, 0.0),
+      end: const Offset(1.2, 0.0),
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
     MotorcycleAnimationService.instance.trigger.addListener(_onTrigger);
   }
 
   void _onTrigger() {
-    final svc = MotorcycleAnimationService.instance;
-    final v = svc.trigger.value;
+    final v = MotorcycleAnimationService.instance.trigger.value;
     if (v == _last) return;
     _last = v;
-    // Play sound if provided
-    if (svc.lastSoundAsset != null && _player != null) {
-      try {
-        _player!.play(AssetSource(svc.lastSoundAsset!));
-      } catch (_) {}
-    }
     _ctrl.forward(from: 0.0);
   }
 
@@ -117,62 +107,26 @@ class _MotorcycleAnimationOverlayState extends State<MotorcycleAnimationOverlay>
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final svc = MotorcycleAnimationService.instance;
     return Stack(
       children: [
         widget.child,
         AnimatedBuilder(
-          animation: _t,
+          animation: _pos,
           builder: (context, child) {
-            final t = _t.value;
-            // cubic bezier between four fractional points
-            final p0 = const Offset(-0.3, 1.2);
-            final p1 = const Offset(0.15, 0.7);
-            final p2 = const Offset(0.85, 0.15);
-            final p3 = const Offset(1.2, -0.4);
-            double u = 1 - t;
-            final x =
-                (u * u * u) * p0.dx +
-                3 * (u * u) * t * p1.dx +
-                3 * u * (t * t) * p2.dx +
-                (t * t * t) * p3.dx;
-            final y =
-                (u * u * u) * p0.dy +
-                3 * (u * u) * t * p1.dy +
-                3 * u * (t * t) * p2.dy +
-                (t * t * t) * p3.dy;
-            final size = svc.lastSize;
-            final mq = MediaQuery.of(context).size;
-            final dx = x * mq.width;
-            final dy = y * mq.height;
-            final visible =
-                _ctrl.status != AnimationStatus.dismissed &&
-                _ctrl.status != AnimationStatus.reverse;
-            if (!visible) return const SizedBox.shrink();
-            Widget animChild;
-            if (svc.lastUseLottie && _lottieAvailable) {
-              try {
-                animChild = Lottie.asset(
-                  'assets/motorcycle.json',
-                  width: size,
-                  height: size,
-                  fit: BoxFit.contain,
-                );
-              } catch (_) {
-                animChild = Icon(
-                  Icons.motorcycle,
-                  size: size,
-                  color: cs.primary,
-                );
-              }
-            } else {
-              animChild = Icon(Icons.motorcycle, size: size, color: cs.primary);
-            }
-            return Positioned(
-              left: dx - (size / 2),
-              top: dy - (size / 2),
-              child: IgnorePointer(
-                child: SizedBox(width: size, height: size, child: animChild),
+            final offset = _pos.value;
+            return FractionalTranslation(
+              translation: offset,
+              child: Visibility(
+                visible:
+                    _ctrl.status != AnimationStatus.dismissed &&
+                    _ctrl.status != AnimationStatus.reverse,
+                child: IgnorePointer(
+                  child: SizedBox(
+                    width: 120,
+                    height: 60,
+                    child: Icon(Icons.motorcycle, size: 56, color: cs.primary),
+                  ),
+                ),
               ),
             );
           },
