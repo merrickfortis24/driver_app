@@ -41,12 +41,18 @@ class MyApp extends StatelessWidget {
           title: 'Nai Tsa Driver',
           themeMode: mode,
           theme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(seedColor: beigeSeed, brightness: Brightness.light),
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: beigeSeed,
+              brightness: Brightness.light,
+            ),
             scaffoldBackgroundColor: const Color(0xFFF6F1EC),
             useMaterial3: true,
           ),
           darkTheme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(seedColor: beigeSeed, brightness: Brightness.dark),
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: beigeSeed,
+              brightness: Brightness.dark,
+            ),
             useMaterial3: true,
           ),
           // Wrap the app with an overlay that listens for the motorcycle trigger
@@ -62,10 +68,12 @@ class MotorcycleAnimationOverlay extends StatefulWidget {
   const MotorcycleAnimationOverlay({required this.child, super.key});
 
   @override
-  State<MotorcycleAnimationOverlay> createState() => _MotorcycleAnimationOverlayState();
+  State<MotorcycleAnimationOverlay> createState() =>
+      _MotorcycleAnimationOverlayState();
 }
 
-class _MotorcycleAnimationOverlayState extends State<MotorcycleAnimationOverlay> with SingleTickerProviderStateMixin {
+class _MotorcycleAnimationOverlayState extends State<MotorcycleAnimationOverlay>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
   late final Animation<Offset> _pos;
   int _last = 0;
@@ -73,8 +81,14 @@ class _MotorcycleAnimationOverlayState extends State<MotorcycleAnimationOverlay>
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
-    _pos = Tween(begin: const Offset(-1.2, 0.0), end: const Offset(1.2, 0.0)).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _pos = Tween(
+      begin: const Offset(-1.2, 0.0),
+      end: const Offset(1.2, 0.0),
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
     MotorcycleAnimationService.instance.trigger.addListener(_onTrigger);
   }
 
@@ -105,7 +119,9 @@ class _MotorcycleAnimationOverlayState extends State<MotorcycleAnimationOverlay>
             return FractionalTranslation(
               translation: offset,
               child: Visibility(
-                visible: _ctrl.status != AnimationStatus.dismissed && _ctrl.status != AnimationStatus.reverse,
+                visible:
+                    _ctrl.status != AnimationStatus.dismissed &&
+                    _ctrl.status != AnimationStatus.reverse,
                 child: child!,
               ),
             );
@@ -137,7 +153,9 @@ class _SplashPageState extends State<SplashPage> {
     // Keep splash for a short time then navigate to Login
     Future.delayed(const Duration(milliseconds: 900), () {
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const LoginPage()));
+      Navigator.of(
+        context,
+      ).pushReplacement(MaterialPageRoute(builder: (_) => const LoginPage()));
     });
   }
 
@@ -150,12 +168,16 @@ class _SplashPageState extends State<SplashPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
-              width: 120,
-              child: Image.asset('assets/motorcycle.png'),
-            ),
+            SizedBox(width: 120, child: Image.asset('assets/motorcycle.png')),
             const SizedBox(height: 16),
-            Text('Nai Tsa Driver', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: cs.onBackground)),
+            Text(
+              'Nai Tsa Driver',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: cs.onBackground,
+              ),
+            ),
           ],
         ),
       ),
