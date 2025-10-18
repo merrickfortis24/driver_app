@@ -306,8 +306,12 @@ class _HomePageState extends State<HomePage> {
           TextButton(
             onPressed: () async {
               await _api.acceptOrder(o.id);
-              // Play motorcycle animation when an order is accepted
-              MotorcycleAnimationService.instance.show();
+              // Play motorcycle animation when an order is accepted (smaller)
+              MotorcycleAnimationService.instance.show(
+                size: 56.0,
+                useLottie: false,
+                soundAsset: 'assets/sfx/moto_short.mp3',
+              );
               _refresh();
             },
             child: const Text('Accept'),
