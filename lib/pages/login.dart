@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api_connection/api_connection.dart';
 
 import 'main_shell.dart';
+import '../services/animation_controller.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -53,6 +54,8 @@ class _LoginPageState extends State<LoginPage> {
         if (token != null && token is String && token.isNotEmpty) {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('token', token);
+          // Play motorcycle animation on successful login
+          MotorcycleAnimationService.instance.show();
           if (!mounted) return;
           Navigator.pushReplacement(
             context,
@@ -80,8 +83,9 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: cs.background,
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),

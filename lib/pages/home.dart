@@ -6,6 +6,7 @@ import '../models/delivery.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/delivery_api.dart';
 import '../services/delivery_exceptions.dart';
+import '../services/animation_controller.dart';
 import 'login.dart';
 import 'map_page.dart';
 import 'proof_capture_page.dart';
@@ -305,6 +306,8 @@ class _HomePageState extends State<HomePage> {
           TextButton(
             onPressed: () async {
               await _api.acceptOrder(o.id);
+              // Play motorcycle animation when an order is accepted
+              MotorcycleAnimationService.instance.show();
               _refresh();
             },
             child: const Text('Accept'),
