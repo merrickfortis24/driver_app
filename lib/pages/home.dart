@@ -13,7 +13,11 @@ import 'proof_capture_page.dart';
 class HomePage extends StatefulWidget {
   final String initialTab;
   final bool showTopTabs; // controls whether the Active/History chips are shown
-  const HomePage({super.key, this.initialTab = 'active', this.showTopTabs = true});
+  const HomePage({
+    super.key,
+    this.initialTab = 'active',
+    this.showTopTabs = true,
+  });
 
   @override
   State<HomePage> createState() => _HomePageState();
