@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'home.dart';
+import 'history.dart';
 import 'cash_page.dart';
 import 'profile_page.dart';
 
@@ -21,7 +22,7 @@ class _MainShellState extends State<MainShell> {
         body = const HomePage(initialTab: 'active');
         break;
       case 1:
-        body = const HomePage(initialTab: 'history');
+        body = const HistoryPage();
         break;
       case 2:
         body = const CashPage();

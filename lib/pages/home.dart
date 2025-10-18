@@ -8,13 +8,12 @@ import '../services/delivery_api.dart';
 import '../services/delivery_exceptions.dart';
 import 'login.dart';
 import 'map_page.dart';
-import 'profile_page.dart';
 import 'proof_capture_page.dart';
-import 'cash_page.dart';
 
 class HomePage extends StatefulWidget {
   final String initialTab;
-  const HomePage({super.key, this.initialTab = 'active'});
+  final bool showTopTabs; // controls whether the Active/History chips are shown
+  const HomePage({super.key, this.initialTab = 'active', this.showTopTabs = true});
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -585,22 +584,7 @@ class _HomePageState extends State<HomePage> {
                       ],
                     ),
                   ),
-                  IconButton(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const CashPage()),
-                      );
-                    },
-                    icon: const Icon(Icons.payments, color: Colors.white),
-                  ),
-                  IconButton(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const ProfilePage()),
-                      );
-                    },
-                    icon: const Icon(Icons.account_circle, color: Colors.white),
-                  ),
+                  // Cash/Profile moved to bottom navigation — keep refresh only
                   IconButton(
                     onPressed: _refreshing ? null : _refresh,
                     icon: _refreshing
