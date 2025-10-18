@@ -155,7 +155,7 @@ class _SplashPageState extends State<SplashPage> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: cs.background,
+      backgroundColor: cs.surface,
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -170,7 +170,7 @@ class _SplashPageState extends State<SplashPage> {
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: cs.onBackground,
+                color: cs.onSurface,
               ),
             ),
           ],
