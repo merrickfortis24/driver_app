@@ -650,60 +650,7 @@ class _HomePageState extends State<HomePage> {
       ),
     );
 
-    final tabs = Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: () => setState(() => _activeTab = 'active'),
-              icon: const Icon(Icons.place_outlined),
-              label: const Text('Active Orders'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _activeTab == 'active'
-                    ? Theme.of(context).colorScheme.onPrimary
-                    : Theme.of(context).colorScheme.onSurface,
-                backgroundColor: _activeTab == 'active'
-                    ? Theme.of(context).colorScheme.primary
-                    : Theme.of(context).colorScheme.surface,
-                side: BorderSide(
-                  color: _activeTab == 'active'
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.outline,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: () => setState(() => _activeTab = 'history'),
-              icon: const Icon(Icons.history),
-              label: const Text('History'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _activeTab == 'history'
-                    ? Theme.of(context).colorScheme.onPrimary
-                    : Theme.of(context).colorScheme.onSurface,
-                backgroundColor: _activeTab == 'history'
-                    ? Theme.of(context).colorScheme.primary
-                    : Theme.of(context).colorScheme.surface,
-                side: BorderSide(
-                  color: _activeTab == 'history'
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.outline,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+    // Top Active/History buttons removed in favor of bottom navigation.
 
     // Sort and Filter controls
     final sortAndFilter = Padding(
@@ -920,7 +867,7 @@ class _HomePageState extends State<HomePage> {
       appBar: header,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [stats, tabs, sortAndFilter, list],
+        children: [stats, sortAndFilter, list],
       ),
     );
   }
