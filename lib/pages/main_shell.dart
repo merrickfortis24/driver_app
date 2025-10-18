@@ -39,10 +39,16 @@ class _MainShellState extends State<MainShell> {
         currentIndex: _index,
         onTap: (v) => setState(() => _index = v),
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.place_outlined), label: 'Active'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.place_outlined),
+            label: 'Active',
+          ),
           BottomNavigationBarItem(icon: Icon(Icons.history), label: 'History'),
           BottomNavigationBarItem(icon: Icon(Icons.payments), label: 'Cash'),
-          BottomNavigationBarItem(icon: Icon(Icons.account_circle), label: 'Profile'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.account_circle),
+            label: 'Profile',
+          ),
         ],
         type: BottomNavigationBarType.fixed,
       ),
