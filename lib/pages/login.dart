@@ -14,6 +14,265 @@ class LoginPage extends StatefulWidget {
   State<LoginPage> createState() => _LoginPageState();
 }
 
+// Verification modal widget
+class VerificationDialog extends StatefulWidget {
+  final int? driverId;
+  final bool autoSend;
+  const VerificationDialog({super.key, this.driverId, this.autoSend = false});
+
+  @override
+  State<VerificationDialog> createState() => _VerificationDialogState();
+}
+
+class _VerificationDialogState extends State<VerificationDialog> {
+  final _codeController = TextEditingController();
+  bool _loading = false;
+  String? _error;
+  int _cooldown = 0; // seconds remaining for resend
+
+  @override
+  void dispose() {
+    _codeController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // If caller requested automatic send, trigger it after the first frame
+    if (widget.autoSend) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        // ignore: use_build_context_synchronously
+        _resend();
+      });
+    }
+  }
+
+  Future<int?> _getDriverIdFromProfile() async {
+    // If caller provided driverId, use it
+    if (widget.driverId != null) return widget.driverId;
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    if (token == null) return null;
+    final resp = await http
+        .get(
+          Uri.parse(API.profile),
+          headers: {
+            'Accept': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+        )
+        .timeout(const Duration(seconds: 10));
+    if (resp.statusCode < 200 || resp.statusCode >= 300) return null;
+    final data = json.decode(resp.body);
+    if (data is Map) {
+      // Try to sync server verification state to local prefs if available
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final serverVerified =
+            data['is_verified'] ??
+            data['verified'] ??
+            data['isVerified'] ??
+            (data['driver'] is Map ? data['driver']['is_verified'] : null);
+        final idFromMap =
+            data['id'] ??
+            data['driver_id'] ??
+            data['Driver_ID'] ??
+            (data['driver'] is Map ? data['driver']['id'] : null);
+        if (idFromMap != null && serverVerified != null) {
+          final idInt = idFromMap is int
+              ? idFromMap
+              : int.tryParse(idFromMap.toString());
+          if (idInt != null) {
+            final key = 'is_verified_$idInt';
+            final bool verifiedBool = (serverVerified is bool)
+                ? serverVerified
+                : (serverVerified.toString() == '1' ||
+                      serverVerified.toString().toLowerCase() == 'true');
+            if (verifiedBool) {
+              await prefs.setBool(key, true);
+            } else {
+              await prefs.remove(key);
+            }
+          }
+        }
+      } catch (_) {}
+
+      return data['id'] ??
+          data['driver_id'] ??
+          data['Driver_ID'] ??
+          (data['driver'] is Map ? data['driver']['id'] : null);
+    }
+    return null;
+  }
+
+  Future<void> _resend() async {
+    if (_cooldown > 0) return; // guard
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final id = await _getDriverIdFromProfile();
+      if (id == null) throw Exception('Driver id not found');
+      final sendUrl = Uri.parse(
+        '${API.hostConnectDriver}/send_verification_code.php',
+      );
+      final resp = await http
+          .post(
+            sendUrl,
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: json.encode({'driver_id': id}),
+          )
+          .timeout(const Duration(seconds: 10));
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        throw Exception('Failed to resend');
+      }
+      // start cooldown on successful send
+      _startCooldown();
+    } catch (e) {
+      setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _startCooldown([int seconds = 60]) {
+    if (!mounted) return;
+    setState(() => _cooldown = seconds);
+    // Use a periodic Timer rather than Ticker to avoid extra imports
+    Future.doWhile(() async {
+      await Future.delayed(const Duration(seconds: 1));
+      if (!mounted) return false;
+      setState(() => _cooldown = (_cooldown > 0) ? _cooldown - 1 : 0);
+      return _cooldown > 0;
+    });
+  }
+
+  Future<void> _verify() async {
+    final code = _codeController.text.trim();
+    if (code.length != 6) {
+      setState(() => _error = 'Enter the 6-digit code');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final id = await _getDriverIdFromProfile();
+      if (id == null) throw Exception('Driver id not found');
+      final verifyUrl = Uri.parse('${API.hostConnectDriver}/verify_code.php');
+      final resp = await http
+          .post(
+            verifyUrl,
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: json.encode({'driver_id': id, 'code': code}),
+          )
+          .timeout(const Duration(seconds: 10));
+      final data = json.decode(resp.body);
+      if (resp.statusCode >= 200 &&
+          resp.statusCode < 300 &&
+          data is Map &&
+          data['success'] == true) {
+        if (!mounted) return;
+        // Persist that this device is verified for this driver until server clears it
+        final prefs = await SharedPreferences.getInstance();
+        final id = await _getDriverIdFromProfile();
+        if (id != null) {
+          await prefs.setBool('is_verified_$id', true);
+        }
+        if (!mounted) return;
+        Navigator.of(context).pop(true);
+      } else {
+        setState(
+          () => _error = data is Map && data['message'] != null
+              ? data['message'].toString()
+              : 'Invalid code',
+        );
+      }
+    } catch (e) {
+      setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Enter verification code'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('A 6-digit code was sent to your email. Enter it below.'),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _codeController,
+            keyboardType: TextInputType.number,
+            maxLength: 6,
+            decoration: const InputDecoration(counterText: ''),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(_error!, style: const TextStyle(color: Colors.red)),
+          ],
+          if (_cooldown > 0) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Resend available in $_cooldown s',
+              style: const TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 6),
+            // visual progress for cooldown (maps 60 -> 0)
+            SizedBox(
+              height: 6,
+              child: LinearProgressIndicator(
+                value: (_cooldown / 60),
+                backgroundColor: Colors.black12,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: (_loading || _cooldown > 0) ? null : _resend,
+          child: _loading
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : (_cooldown > 0
+                    ? Text('Resend ($_cooldown)')
+                    : const Text('Resend')),
+        ),
+        ElevatedButton(
+          onPressed: _loading ? null : _verify,
+          child: _loading
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Text('Verify'),
+        ),
+      ],
+    );
+  }
+}
+
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>(); // + add a form key
   final _emailController = TextEditingController();
@@ -21,6 +280,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _obscure = true;
   bool _loading = false;
   String? _error;
+  int? _driverId;
 
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return; // + validate before request
@@ -53,15 +313,56 @@ class _LoginPageState extends State<LoginPage> {
             ? (data['token'] ?? data['Api_Token'])
             : null;
         if (token != null && token is String && token.isNotEmpty) {
+          // try to extract driver id from the login response if present
+          int? tryId() {
+            if (data is Map) {
+              var v = data['id'] ?? data['driver_id'] ?? data['Driver_ID'];
+              if (v == null && data['user'] is Map) v = data['user']['id'];
+              if (v is int) return v;
+              if (v is String) return int.tryParse(v);
+            }
+            return null;
+          }
+
+          _driverId = tryId();
+          // We avoid capturing BuildContext across async gaps; dialog is shown later.
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('token', token);
           // Play motorcycle animation on successful login
           MotorcycleAnimationService.instance.show();
-          if (!mounted) return;
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const MainShell()),
-          );
+          // If this device is already locally verified for this driver, skip dialog.
+          var skipVerification = false;
+          if (_driverId != null) {
+            final key = 'is_verified_$_driverId';
+            skipVerification = prefs.getBool(key) ?? false;
+          }
+
+          if (skipVerification) {
+            if (!mounted) return;
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const MainShell()),
+            );
+          } else {
+            // Prompt for verification code — dialog will handle sending/resend
+            if (!mounted) return;
+            final verified = await showDialog<bool>(
+              context: context,
+              barrierDismissible: false,
+              builder: (_) =>
+                  VerificationDialog(driverId: _driverId, autoSend: true),
+            );
+
+            if (verified == true) {
+              if (!mounted) return;
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (_) => const MainShell()),
+              );
+            } else {
+              setState(() => _error = 'Verification required');
+            }
+          }
         } else {
           setState(
             () => _error =
@@ -81,6 +382,9 @@ class _LoginPageState extends State<LoginPage> {
       if (mounted) setState(() => _loading = false);
     }
   }
+
+  // Call backend to send verification code to the logged in driver.
+  // Note: verification dialog handles sending/resend directly.
 
   @override
   Widget build(BuildContext context) {

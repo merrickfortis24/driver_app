@@ -2,7 +2,7 @@
 // Lightweight debug helper: show table columns and a single driver row for a given email
 // Usage: debug_driver_row.php?email=someone@example.com
 
-header('Access-Control-Allow-Origin: *');
+// CORS handled by server-level .htaccess
 header('Content-Type: application/json');
 
 try {
