@@ -7,7 +7,7 @@ import '../services/delivery_api.dart';
 import 'login.dart';
 import '../widgets/header_icon.dart';
 import '../services/theme_controller.dart';
-import 'edit_profile_page.dart';
+// Inline editing implemented; no separate edit page import needed
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -24,10 +24,21 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _loading = true;
   String? _error;
   final _df = DateFormat('y-MM-dd HH:mm');
+  final _formKey = GlobalKey<FormState>();
+  late TextEditingController _nameController;
+  late TextEditingController _emailController;
+  late TextEditingController _phoneController;
+  late TextEditingController _addressController;
+  bool _editing = false;
+  bool _saving = false;
 
   @override
   void initState() {
     super.initState();
+    _nameController = TextEditingController();
+    _emailController = TextEditingController();
+    _phoneController = TextEditingController();
+    _addressController = TextEditingController();
     _load();
   }
 
@@ -38,12 +49,30 @@ class _ProfilePageState extends State<ProfilePage> {
     });
     try {
       final d = await _api.fetchProfile();
-      if (mounted) setState(() => _driver = d);
+      if (mounted) {
+        setState(() {
+          _driver = d;
+          // populate controllers for inline edit
+          _nameController.text = d.name;
+          _emailController.text = d.email;
+          _phoneController.text = d.phone ?? '';
+          _addressController.text = d.address ?? '';
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _phoneController.dispose();
+    _addressController.dispose();
+    super.dispose();
   }
 
   Future<void> _logout() async {
@@ -181,13 +210,36 @@ class _ProfilePageState extends State<ProfilePage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  _driver!.name,
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
+                                // Name (editable)
+                                _editing
+                                    ? TextFormField(
+                                        controller: _nameController,
+                                        style: const TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                        decoration: const InputDecoration(
+                                          isDense: true,
+                                          contentPadding: EdgeInsets.symmetric(
+                                            vertical: 6,
+                                            horizontal: 8,
+                                          ),
+                                          border: InputBorder.none,
+                                        ),
+                                        validator: (v) {
+                                          if (v == null || v.trim().isEmpty) {
+                                            return 'Please enter your name';
+                                          }
+                                          return null;
+                                        },
+                                      )
+                                    : Text(
+                                        _driver!.name,
+                                        style: const TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
                                 const SizedBox(height: 6),
                                 Text(
                                   'Delivery Rider',
@@ -221,52 +273,188 @@ class _ProfilePageState extends State<ProfilePage> {
                               ],
                             ),
                           ),
-                          // Edit button
-                          Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(20),
-                              onTap: () async {
-                                final res = await Navigator.of(context)
-                                    .push<bool?>(
-                                      MaterialPageRoute(
-                                        builder: (_) => EditProfilePage(
-                                          name: _driver!.name,
-                                          email: _driver!.email,
-                                          phone: _driver!.phone,
-                                          address: _driver!.address,
+                          // Edit / Save / Cancel actions (constrained to avoid overflow)
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 160),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: _editing
+                                  ? Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 6,
+                                            ),
+                                            backgroundColor: const Color(
+                                              0xFFF4E9DF,
+                                            ),
+                                            foregroundColor: const Color(
+                                              0xFF7A5A34,
+                                            ),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                            ),
+                                            elevation: 0,
+                                          ),
+                                          onPressed: _saving
+                                              ? null
+                                              : () async {
+                                                  // save
+                                                  if (!_formKey.currentState!
+                                                      .validate()) {
+                                                    return;
+                                                  }
+                                                  final messenger =
+                                                      ScaffoldMessenger.of(
+                                                        context,
+                                                      );
+                                                  setState(() {
+                                                    _saving = true;
+                                                  });
+                                                  try {
+                                                    await _api.updateProfile(
+                                                      name: _nameController.text
+                                                          .trim(),
+                                                      email: _emailController
+                                                          .text
+                                                          .trim(),
+                                                      phone: _phoneController
+                                                          .text
+                                                          .trim(),
+                                                      address:
+                                                          _addressController
+                                                              .text
+                                                              .trim(),
+                                                    );
+                                                    if (!mounted) return;
+                                                    messenger.showSnackBar(
+                                                      const SnackBar(
+                                                        content: Text(
+                                                          'Profile updated',
+                                                        ),
+                                                      ),
+                                                    );
+                                                    setState(() {
+                                                      _editing = false;
+                                                    });
+                                                    await _load();
+                                                  } catch (e) {
+                                                    if (mounted) {
+                                                      messenger.showSnackBar(
+                                                        SnackBar(
+                                                          content: Text(
+                                                            e.toString(),
+                                                          ),
+                                                        ),
+                                                      );
+                                                    }
+                                                  } finally {
+                                                    if (mounted) {
+                                                      setState(() {
+                                                        _saving = false;
+                                                      });
+                                                    }
+                                                  }
+                                                },
+                                          child: _saving
+                                              ? const SizedBox(
+                                                  width: 16,
+                                                  height: 16,
+                                                  child: CircularProgressIndicator(
+                                                    strokeWidth: 2,
+                                                    valueColor:
+                                                        AlwaysStoppedAnimation(
+                                                          Colors.white,
+                                                        ),
+                                                  ),
+                                                )
+                                              : const Row(
+                                                  children: [
+                                                    Icon(Icons.save, size: 16),
+                                                    SizedBox(width: 8),
+                                                    Text('Save'),
+                                                  ],
+                                                ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        OutlinedButton(
+                                          style: OutlinedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 6,
+                                            ),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                            ),
+                                            side: const BorderSide(
+                                              color: Color(0xFFBFA78D),
+                                            ),
+                                            foregroundColor: const Color(
+                                              0xFF7A5A34,
+                                            ),
+                                          ),
+                                          onPressed: _saving
+                                              ? null
+                                              : () {
+                                                  // cancel edits, restore values
+                                                  setState(() {
+                                                    _editing = false;
+                                                    _nameController.text =
+                                                        _driver!.name;
+                                                    _emailController.text =
+                                                        _driver!.email;
+                                                    _phoneController.text =
+                                                        _driver!.phone ?? '';
+                                                    _addressController.text =
+                                                        _driver!.address ?? '';
+                                                  });
+                                                },
+                                          child: const Text('Cancel'),
+                                        ),
+                                      ],
+                                    )
+                                  : InkWell(
+                                      borderRadius: BorderRadius.circular(14),
+                                      onTap: () =>
+                                          setState(() => _editing = true),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 6,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF4E9DF),
+                                          borderRadius: BorderRadius.circular(
+                                            14,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(
+                                              Icons.edit,
+                                              size: 16,
+                                              color: Color(0xFF7A5A34),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Flexible(
+                                              child: Text(
+                                                'Edit Profile',
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color: Color(0xFF7A5A34),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
-                                    );
-                                if (res == true) {
-                                  // refresh profile
-                                  _load();
-                                }
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 8,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF7A5A34),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Row(
-                                  children: const [
-                                    Icon(
-                                      Icons.edit,
-                                      size: 16,
-                                      color: Colors.white,
                                     ),
-                                    SizedBox(width: 8),
-                                    Text(
-                                      'Edit Profile',
-                                      style: TextStyle(color: Colors.white),
-                                    ),
-                                  ],
-                                ),
-                              ),
                             ),
                           ),
                         ],
@@ -275,51 +463,120 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                // Personal Information card
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surface,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Personal Information',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 12),
-                      _infoRow(
-                        Icons.person_outline,
-                        'Full Name',
-                        _driver!.name,
-                      ),
-                      const SizedBox(height: 8),
-                      _infoRow(Icons.email_outlined, 'Email', _driver!.email),
-                      const SizedBox(height: 8),
-                      _infoRow(
-                        Icons.phone_outlined,
-                        'Phone Number',
-                        _driver!.phone ?? '-',
-                      ),
-                      const SizedBox(height: 8),
-                      _infoRow(
-                        Icons.location_on_outlined,
-                        'Address',
-                        _driver!.address ?? '-',
-                      ),
-                      const SizedBox(height: 8),
-                      _infoRow(Icons.badge_outlined, 'Driver ID', _driver!.id),
-                      const SizedBox(height: 8),
-                      _infoRow(
-                        Icons.lock_clock,
-                        'Token Expires',
-                        _driver!.tokenExpires != null
-                            ? _df.format(_driver!.tokenExpires!)
-                            : '-',
-                      ),
-                    ],
+                // Personal Information card (view or edit)
+                Form(
+                  key: _formKey,
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Personal Information',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 12),
+                        _editing
+                            ? Column(
+                                children: [
+                                  _formFieldRow(
+                                    Icons.person_outline,
+                                    'Full Name',
+                                    _nameController,
+                                    validator: (v) {
+                                      if (v == null || v.trim().isEmpty) {
+                                        return 'Enter name';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _formFieldRow(
+                                    Icons.email_outlined,
+                                    'Email',
+                                    _emailController,
+                                    validator: (v) {
+                                      if (v == null || v.trim().isEmpty) {
+                                        return 'Enter email';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _formFieldRow(
+                                    Icons.phone_outlined,
+                                    'Phone Number',
+                                    _phoneController,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _formFieldRow(
+                                    Icons.location_on_outlined,
+                                    'Address',
+                                    _addressController,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _infoRow(
+                                    Icons.badge_outlined,
+                                    'Driver ID',
+                                    _driver!.id,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _infoRow(
+                                    Icons.lock_clock,
+                                    'Token Expires',
+                                    _driver!.tokenExpires != null
+                                        ? _df.format(_driver!.tokenExpires!)
+                                        : '-',
+                                  ),
+                                ],
+                              )
+                            : Column(
+                                children: [
+                                  _infoRow(
+                                    Icons.person_outline,
+                                    'Full Name',
+                                    _driver!.name,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _infoRow(
+                                    Icons.email_outlined,
+                                    'Email',
+                                    _driver!.email,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _infoRow(
+                                    Icons.phone_outlined,
+                                    'Phone Number',
+                                    _driver!.phone ?? '-',
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _infoRow(
+                                    Icons.location_on_outlined,
+                                    'Address',
+                                    _driver!.address ?? '-',
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _infoRow(
+                                    Icons.badge_outlined,
+                                    'Driver ID',
+                                    _driver!.id,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _infoRow(
+                                    Icons.lock_clock,
+                                    'Token Expires',
+                                    _driver!.tokenExpires != null
+                                        ? _df.format(_driver!.tokenExpires!)
+                                        : '-',
+                                  ),
+                                ],
+                              ),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -360,6 +617,48 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
               const SizedBox(height: 4),
               Text(value),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _formFieldRow(
+    IconData icon,
+    String label,
+    TextEditingController controller, {
+    String? Function(String?)? validator,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: const Color(0xFF7A5A34)),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 4),
+              TextFormField(
+                controller: controller,
+                validator: validator,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(
+                    vertical: 8,
+                    horizontal: 8,
+                  ),
+                  border: InputBorder.none,
+                ),
+              ),
             ],
           ),
         ),
