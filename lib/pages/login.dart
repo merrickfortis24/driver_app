@@ -85,8 +85,9 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    // Custom brand colors
-    final bg = cs.surface;
+    // Keep login background light for readability even in dark mode.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? const Color(0xFF12100E) : cs.surface;
     final cardBg = const Color(0xFFF6F1EC);
     final accent = const Color(0xFF7A5A34); // brown/gold
 
@@ -121,8 +122,8 @@ class _LoginPageState extends State<LoginPage> {
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
                       BoxShadow(
-                        // ignore: deprecated_member_use
-                        color: Colors.black.withOpacity(0.05),
+                        // use Color.fromRGBO instead of withOpacity for compatibility
+                        color: const Color.fromRGBO(0, 0, 0, 0.05),
                         blurRadius: 10,
                         offset: const Offset(0, 6),
                       ),
@@ -209,6 +210,15 @@ class _LoginPageState extends State<LoginPage> {
                           onPressed: _loading ? null : _login,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: accent,
+                            foregroundColor: Colors.white,
+                            // avoid using .withOpacity (deprecated); use Color.fromRGBO
+                            disabledBackgroundColor: const Color.fromRGBO(
+                              122,
+                              90,
+                              52,
+                              0.6,
+                            ),
+                            disabledForegroundColor: Colors.white70,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),

@@ -384,6 +384,15 @@ class DeliveryApi {
       id: (d['id'] ?? '').toString(),
       name: (d['name'] ?? '').toString(),
       email: (d['email'] ?? d['gmail'] ?? '').toString(),
+      phone:
+          (d['phone'] ?? d['phone_number'] ?? d['mobile'] ?? '')
+              .toString()
+              .isEmpty
+          ? null
+          : (d['phone'] ?? d['phone_number'] ?? d['mobile'])?.toString(),
+      address: (d['address'] ?? d['location'] ?? '').toString().isEmpty
+          ? null
+          : (d['address'] ?? d['location'])?.toString(),
       isActive: isActive,
       createdAt: parseDate(d['createdAt']),
       lastLogin: parseDate(d['lastLogin']),

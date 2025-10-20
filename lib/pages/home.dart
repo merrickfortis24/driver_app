@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher_string.dart';
+import '../services/theme_controller.dart';
+import '../widgets/header_icon.dart';
 import '../models/delivery.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/delivery_api.dart';
@@ -32,7 +34,7 @@ class _HomePageState extends State<HomePage> {
   bool _loading = true;
   String? _error;
   String _activeTab = 'active'; // 'active' | 'history'
-  bool _refreshing = false;
+  // bool _refreshing = false; // removed: app bar refresh button was removed
 
   // Sorting/Filtering
   SortOption _sort = SortOption.status;
@@ -90,7 +92,6 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _refresh() async {
-    setState(() => _refreshing = true);
     try {
       final orders = await _api.fetchOrders();
       if (mounted) {
@@ -115,9 +116,6 @@ class _HomePageState extends State<HomePage> {
       }
     } finally {
       await Future<void>.delayed(const Duration(milliseconds: 300));
-      if (mounted) {
-        setState(() => _refreshing = false);
-      }
     }
   }
 
@@ -533,77 +531,83 @@ class _HomePageState extends State<HomePage> {
         _positionRequestedOnce = false;
       });
     }
+    final brightness = Theme.of(context).brightness;
+    Color headerBg() {
+      // keep a soft beige on light mode; in dark mode use a darker, desaturated
+      // variant so the header doesn't visually clash with dark scaffold.
+      return brightness == Brightness.dark
+          ? const Color(0xFF2B2724)
+          : const Color(0xFFFAF6F0);
+    }
+
     final header = PreferredSize(
-      preferredSize: const Size.fromHeight(110),
+      // Match Cash/Profile header height and layout for visual consistency
+      preferredSize: const Size.fromHeight(86),
       child: AppBar(
         automaticallyImplyLeading: false,
-        centerTitle: false,
         elevation: 0,
         flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFF6A5AE0), Color(0xFF4C6FD7)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+          decoration: BoxDecoration(
+            color: headerBg(),
+            borderRadius: const BorderRadius.vertical(
+              bottom: Radius.circular(20),
             ),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x12000000),
+                blurRadius: 8,
+                offset: Offset(0, 2),
+              ),
+            ],
           ),
           child: SafeArea(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: .2),
-                      borderRadius: BorderRadius.circular(12),
+                  // Keep dynamic title: show 'History' if active tab is history
+                  if (_activeTab == 'history')
+                    HeaderIcon(title: 'History', icon: Icons.history)
+                  else
+                    HeaderIcon(
+                      title: 'Welcome back!',
+                      icon: Icons.home_outlined,
+                      subtitle: 'Driver',
                     ),
-                    child: const Icon(
-                      Icons.local_shipping_outlined,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'Welcome back!',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        SizedBox(height: 2),
-                        Text(
-                          'Driver',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w400,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  // Cash/Profile moved to bottom navigation — keep refresh only
-                  IconButton(
-                    onPressed: _refreshing ? null : _refresh,
-                    icon: _refreshing
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
+                  const Spacer(),
+                  ValueListenableBuilder<ThemeMode>(
+                    valueListenable: ThemeController.instance.mode,
+                    builder: (context, mode, _) {
+                      final isDark = mode == ThemeMode.dark;
+                      return Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () {
+                            ThemeController.instance.set(
+                              isDark ? ThemeMode.light : ThemeMode.dark,
+                            );
+                          },
+                          child: Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEFE6DA),
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                          )
-                        : const Icon(Icons.refresh, color: Colors.white),
+                            child: Center(
+                              child: Icon(
+                                isDark
+                                    ? Icons.dark_mode
+                                    : Icons.nightlight_round,
+                                color: const Color(0xFF6B4F32),
+                                size: 20,
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),

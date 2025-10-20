@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/delivery_api.dart';
+import '../widgets/header_icon.dart';
+import '../services/theme_controller.dart';
 
 class CashPage extends StatefulWidget {
   const CashPage({super.key});
@@ -25,12 +27,14 @@ class _CashPageState extends State<CashPage> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
       final d = await _api.fetchCashSummary();
+      if (!mounted) return;
       setState(() {
         _data = d;
         final today = d['today'] as Map<String, dynamic>? ?? {};
@@ -40,9 +44,12 @@ class _CashPageState extends State<CashPage> {
         _amountCtrl.text = cashInHand > 0 ? cashInHand.toStringAsFixed(2) : '';
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _error = e.toString());
     } finally {
-      setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -62,6 +69,7 @@ class _CashPageState extends State<CashPage> {
       );
       return;
     }
+    if (!mounted) return;
     setState(() => _submitting = true);
     try {
       final res = await _api.submitRemittance(
@@ -69,6 +77,7 @@ class _CashPageState extends State<CashPage> {
         note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
         proofJpeg: null,
       );
+      if (!mounted) return;
       setState(() {
         _data = res;
         final t = res['today'] as Map<String, dynamic>? ?? {};
@@ -83,6 +92,7 @@ class _CashPageState extends State<CashPage> {
         context,
       ).showSnackBar(const SnackBar(content: Text('Remittance submitted')));
     } catch (e) {
+      if (!mounted) return;
       setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -92,8 +102,85 @@ class _CashPageState extends State<CashPage> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
+    Color headerBg() => brightness == Brightness.dark
+        ? const Color(0xFF2B2724)
+        : const Color(0xFFFAF6F0);
+
+    final header = PreferredSize(
+      preferredSize: const Size.fromHeight(86),
+      child: AppBar(
+        automaticallyImplyLeading: false,
+        elevation: 0,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            color: headerBg(),
+            borderRadius: const BorderRadius.vertical(
+              bottom: Radius.circular(20),
+            ),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x12000000),
+                blurRadius: 8,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                children: [
+                  HeaderIcon(
+                    title: 'Cash',
+                    icon: Icons.account_balance_wallet_outlined,
+                  ),
+                  const Spacer(),
+                  ValueListenableBuilder<ThemeMode>(
+                    valueListenable: ThemeController.instance.mode,
+                    builder: (context, mode, _) {
+                      final isDark = mode == ThemeMode.dark;
+                      return Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () {
+                            ThemeController.instance.set(
+                              isDark ? ThemeMode.light : ThemeMode.dark,
+                            );
+                          },
+                          child: Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEFE6DA),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Center(
+                              child: Icon(
+                                isDark
+                                    ? Icons.dark_mode
+                                    : Icons.nightlight_round,
+                                color: const Color(0xFF6B4F32),
+                                size: 20,
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        backgroundColor: Colors.transparent,
+      ),
+    );
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Cash')),
+      appBar: header,
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -225,3 +312,5 @@ class _CashPageState extends State<CashPage> {
     );
   }
 }
+
+// header icon moved to shared widget HeaderIcon
