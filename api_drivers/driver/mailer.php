@@ -3,28 +3,31 @@
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
-// Try common locations for PHPMailer sources (composer vendor is preferred)
-$candidates = [
+// Prefer Composer autoload (resolved via dirname), fall back to some legacy locations
+$vendorAutoload = dirname(__DIR__, 2) . '/vendor/autoload.php';
+$legacyCandidates = [
     __DIR__ . '/../../vendor/phpmailer/phpmailer/src',
     __DIR__ . '/../vendor/phpmailer/phpmailer/src',
     __DIR__ . '/PHPMailer-master/src',
     __DIR__ . '/../../PHPMailer-master/src',
 ];
-$found = null;
-foreach ($candidates as $dir) {
-    if (is_dir($dir)) { $found = $dir; break; }
-}
-if ($found === null) {
-    // If composer autoload is available, include it instead
-    if (is_file(__DIR__ . '/../../vendor/autoload.php')) {
-        require_once __DIR__ . '/../../vendor/autoload.php';
-    } else {
-        throw new \RuntimeException('PHPMailer sources not found. Install via Composer or place PHPMailer sources in one of: ' . implode(', ', $candidates));
-    }
+
+if (is_file($vendorAutoload)) {
+    // use Composer autoloader when available
+    require_once $vendorAutoload;
 } else {
-    require_once $found . '/Exception.php';
-    require_once $found . '/PHPMailer.php';
-    require_once $found . '/SMTP.php';
+    // fallback: try to find PHPMailer sources directly
+    $found = null;
+    foreach ($legacyCandidates as $dir) {
+        if (is_dir($dir)) { $found = $dir; break; }
+    }
+    if ($found !== null) {
+        require_once $found . '/Exception.php';
+        require_once $found . '/PHPMailer.php';
+        require_once $found . '/SMTP.php';
+    } else {
+        throw new \RuntimeException('PHPMailer sources not found. Install via Composer or place PHPMailer sources in one of: ' . implode(', ', $legacyCandidates));
+    }
 }
 
 function mailer_instance(): PHPMailer {

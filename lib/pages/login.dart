@@ -243,6 +243,16 @@ class _VerificationDialogState extends State<VerificationDialog> {
         ],
       ),
       actions: [
+        // Cancel - returns false to the caller
+        TextButton(
+          onPressed: _loading
+              ? null
+              : () {
+                  if (!mounted) return;
+                  Navigator.of(context).pop(false);
+                },
+          child: const Text('Cancel'),
+        ),
         TextButton(
           onPressed: (_loading || _cooldown > 0) ? null : _resend,
           child: _loading

@@ -31,7 +31,7 @@ $mysqli = new mysqli($config['host'], $config['user'], $config['pass'], $config[
 if ($mysqli->connect_errno) json_error('DB connection failed', 500);
 $mysqli->set_charset($config['charset']);
 
-$stmt = $mysqli->prepare('SELECT verification_code, code_expires_at FROM drivers WHERE id = ? LIMIT 1');
+$stmt = $mysqli->prepare('SELECT verification_code, code_expires_at FROM drivers WHERE Driver_ID = ? LIMIT 1');
 if (!$stmt) json_error('DB prepare failed', 500);
 $stmt->bind_param('i', $driver_id);
 $stmt->execute();
@@ -64,7 +64,7 @@ if (!hash_equals($stored, $code)) {
 }
 
 // Mark verified and clear fields
-$upd = $mysqli->prepare('UPDATE drivers SET is_verified = 1, verification_code = NULL, code_expires_at = NULL WHERE id = ?');
+$upd = $mysqli->prepare('UPDATE drivers SET is_verified = 1, verification_code = NULL, code_expires_at = NULL WHERE Driver_ID = ?');
 if (!$upd) json_error('DB prepare failed', 500);
 $upd->bind_param('i', $driver_id);
 if (!$upd->execute()) {
