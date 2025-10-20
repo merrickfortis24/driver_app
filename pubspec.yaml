@@ -74,6 +74,8 @@ flutter:
   uses-material-design: true
 
   # No custom assets required; motorcycle animation uses an Icon fallback.
+  assets:
+    - assets/logo.jpg
 
   # To add assets to your application, add an assets section, like this:
   # assets:
