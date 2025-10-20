@@ -140,19 +140,26 @@ class _LoginPageState extends State<LoginPage> {
                     const SizedBox(height: 18),
                     TextFormField(
                       controller: _emailController,
-                      keyboardType: TextInputType.text,
+                      keyboardType: TextInputType.emailAddress,
+                      autofillHints: const [AutofillHints.email],
                       decoration: InputDecoration(
-                        labelText: 'Username',
-                        prefixIcon: const Icon(Icons.person_outline),
+                        labelText: 'Email',
+                        prefixIcon: const Icon(Icons.email_outlined),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                         filled: true,
                         fillColor: Colors.white,
                       ),
-                      validator: (v) => (v == null || v.trim().isEmpty)
-                          ? 'Enter your username'
-                          : null,
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) {
+                          return 'Enter your email';
+                        }
+                        final ok = RegExp(
+                          r'^[^@]+@[^@]+\.[^@]+$',
+                        ).hasMatch(v.trim());
+                        return ok ? null : 'Enter a valid email';
+                      },
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
