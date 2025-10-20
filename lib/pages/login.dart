@@ -111,7 +111,10 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 const SizedBox(height: 12),
                 Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  margin: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 8,
+                  ),
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
                     color: cardBg,
@@ -152,8 +155,11 @@ class _LoginPageState extends State<LoginPage> {
                           fillColor: Colors.white,
                         ),
                         validator: (v) {
-                          if (v == null || v.trim().isEmpty) return 'Enter your email';
-                          final ok = RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(v.trim());
+                          if (v == null || v.trim().isEmpty)
+                            return 'Enter your email';
+                          final ok = RegExp(
+                            r'^[^@]+@[^@]+\.[^@]+$',
+                          ).hasMatch(v.trim());
                           return ok ? null : 'Enter a valid email';
                         },
                       ),
@@ -164,8 +170,13 @@ class _LoginPageState extends State<LoginPage> {
                           labelText: 'Password',
                           prefixIcon: const Icon(Icons.lock_outline),
                           suffixIcon: IconButton(
-                            icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
-                            onPressed: () => setState(() => _obscure = !_obscure),
+                            icon: Icon(
+                              _obscure
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                            ),
+                            onPressed: () =>
+                                setState(() => _obscure = !_obscure),
                           ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
@@ -174,7 +185,9 @@ class _LoginPageState extends State<LoginPage> {
                           fillColor: Colors.white,
                         ),
                         obscureText: _obscure,
-                        validator: (v) => (v == null || v.isEmpty) ? 'Enter your password' : null,
+                        validator: (v) => (v == null || v.isEmpty)
+                            ? 'Enter your password'
+                            : null,
                       ),
                       const SizedBox(height: 18),
                       if (_error != null)
