@@ -155,8 +155,9 @@ class _LoginPageState extends State<LoginPage> {
                           fillColor: Colors.white,
                         ),
                         validator: (v) {
-                          if (v == null || v.trim().isEmpty)
+                          if (v == null || v.trim().isEmpty) {
                             return 'Enter your email';
+                          }
                           final ok = RegExp(
                             r'^[^@]+@[^@]+\.[^@]+$',
                           ).hasMatch(v.trim());
