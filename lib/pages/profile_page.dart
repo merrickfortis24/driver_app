@@ -7,6 +7,7 @@ import '../services/delivery_api.dart';
 import 'login.dart';
 import '../widgets/header_icon.dart';
 import '../services/theme_controller.dart';
+import 'edit_profile_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -225,7 +226,23 @@ class _ProfilePageState extends State<ProfilePage> {
                             color: Colors.transparent,
                             child: InkWell(
                               borderRadius: BorderRadius.circular(20),
-                              onTap: () {},
+                              onTap: () async {
+                                final res = await Navigator.of(context)
+                                    .push<bool?>(
+                                      MaterialPageRoute(
+                                        builder: (_) => EditProfilePage(
+                                          name: _driver!.name,
+                                          email: _driver!.email,
+                                          phone: _driver!.phone,
+                                          address: _driver!.address,
+                                        ),
+                                      ),
+                                    );
+                                if (res == true) {
+                                  // refresh profile
+                                  _load();
+                                }
+                              },
                               child: Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 12,

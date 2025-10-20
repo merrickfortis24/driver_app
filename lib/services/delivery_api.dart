@@ -373,30 +373,78 @@ class DeliveryApi {
     } catch (e) {
       throw ApiException('Invalid JSON from profile endpoint');
     }
-    final d = jsonBody['driver'] ?? {};
-    DateTime? parseDate(dynamic v) {
-      return _safeDate(v);
+    // Collect candidate maps: top-level, 'driver', 'user', 'data'
+    final Map<String, dynamic> merged = {};
+    if (jsonBody is Map) {
+      jsonBody.forEach((k, v) {
+        try {
+          merged[k.toString()] = v;
+        } catch (_) {}
+      });
+    }
+    if (jsonBody is Map && jsonBody['driver'] is Map) {
+      (jsonBody['driver'] as Map).forEach((k, v) {
+        try {
+          merged[k.toString()] = v;
+        } catch (_) {}
+      });
+    }
+    if (jsonBody is Map && jsonBody['user'] is Map) {
+      (jsonBody['user'] as Map).forEach((k, v) {
+        try {
+          merged[k.toString()] = v;
+        } catch (_) {}
+      });
+    }
+    if (jsonBody is Map && jsonBody['data'] is Map) {
+      (jsonBody['data'] as Map).forEach((k, v) {
+        try {
+          merged[k.toString()] = v;
+        } catch (_) {}
+      });
     }
 
-    final statusStr = (d['status'] ?? '').toString().toLowerCase();
+    DateTime? parseDate(dynamic v) => _safeDate(v);
+
+    // Build a lowercase-key map so we tolerate capitalization differences
+    final Map<String, dynamic> lower = {};
+    merged.forEach((k, v) {
+      try {
+        lower[k.toString().toLowerCase()] = v;
+      } catch (_) {}
+    });
+
+    String? pick(List<String> keys) {
+      for (final k in keys) {
+        final lk = k.toLowerCase();
+        if (lower.containsKey(lk) &&
+            lower[lk] != null &&
+            lower[lk].toString().isNotEmpty) {
+          return lower[lk].toString();
+        }
+      }
+      return null;
+    }
+
+    final statusStr = (pick(['status']) ?? '').toLowerCase();
     final isActive = statusStr.isEmpty || statusStr == 'active';
     return Driver(
-      id: (d['id'] ?? '').toString(),
-      name: (d['name'] ?? '').toString(),
-      email: (d['email'] ?? d['gmail'] ?? '').toString(),
-      phone:
-          (d['phone'] ?? d['phone_number'] ?? d['mobile'] ?? '')
-              .toString()
-              .isEmpty
-          ? null
-          : (d['phone'] ?? d['phone_number'] ?? d['mobile'])?.toString(),
-      address: (d['address'] ?? d['location'] ?? '').toString().isEmpty
-          ? null
-          : (d['address'] ?? d['location'])?.toString(),
+      id: (pick(['id', 'driver_id', 'driverid']) ?? '').toString(),
+      name: (pick(['name']) ?? '').toString(),
+      email: (pick(['email', 'gmail']) ?? '').toString(),
+      phone: pick(['phone', 'phone_number', 'mobile', 'phone_no', 'phone']),
+      address: pick(['address', 'location', 'addr']),
       isActive: isActive,
-      createdAt: parseDate(d['createdAt']),
-      lastLogin: parseDate(d['lastLogin']),
-      tokenExpires: parseDate(d['tokenExpires']),
+      createdAt: parseDate(
+        pick(['created_at', 'createdat', 'createdat']) ?? lower['created_at'],
+      ),
+      lastLogin: parseDate(
+        pick(['last_login', 'lastlogin', 'lastlogin']) ?? lower['last_login'],
+      ),
+      tokenExpires: parseDate(
+        pick(['token_expires', 'tokenexpires', 'tokenExpires']) ??
+            lower['token_expires'],
+      ),
     );
   }
 
@@ -424,6 +472,47 @@ class DeliveryApi {
       );
     }
     return json.decode(res.body) as Map<String, dynamic>;
+  }
+
+  Future<Driver> updateProfile({
+    required String name,
+    required String email,
+    String? phone,
+    String? address,
+  }) async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) {
+      throw UnauthorizedException('missing_token');
+    }
+    final uri = Uri.parse(API.updateProfile);
+    final body = <String, String>{'name': name, 'email': email};
+    if (phone != null) {
+      body['phone'] = phone;
+    }
+    if (address != null) {
+      body['address'] = address;
+    }
+    final res = await http
+        .post(
+          uri,
+          headers: {
+            'Accept': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: body,
+        )
+        .timeout(const Duration(seconds: 20));
+    if (res.statusCode == 401) {
+      throw UnauthorizedException('Unauthorized');
+    }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw ApiException(
+        'update_profile_http_${res.statusCode}: ${res.body}',
+        statusCode: res.statusCode,
+      );
+    }
+    // Successful update - refresh current profile from server to get normalized model
+    return fetchProfile();
   }
 
   Future<Map<String, dynamic>> submitRemittance({

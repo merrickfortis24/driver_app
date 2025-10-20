@@ -39,12 +39,16 @@ try {
   $hasCreated = in_array('Created_At', $cols, true);
   $hasLastLogin = in_array('Last_Login', $cols, true);
   $hasTokenExp = in_array('Token_Expires', $cols, true);
+  $hasPhone = in_array('Phone', $cols, true);
+  $hasAddress = in_array('Address', $cols, true);
 
   $sel = ['Driver_ID','Name','Gmail'];
   if ($hasStatus) $sel[] = 'Status';
   if ($hasCreated) $sel[] = 'Created_At';
   if ($hasLastLogin) $sel[] = 'Last_Login';
   if ($hasTokenExp) $sel[] = 'Token_Expires';
+  if ($hasPhone) $sel[] = 'Phone';
+  if ($hasAddress) $sel[] = 'Address';
   $list = implode(', ', array_map(fn($c)=>"`$c`", $sel));
 
   $q = $db->prepare("SELECT $list FROM drivers WHERE Api_Token=? AND (Token_Expires IS NULL OR Token_Expires > NOW()) LIMIT 1");
@@ -60,7 +64,9 @@ try {
       'status' => $u['Status'] ?? null,
       'createdAt' => $u['Created_At'] ?? null,
       'lastLogin' => $u['Last_Login'] ?? null,
-      'tokenExpires' => $u['Token_Expires'] ?? null,
+        'tokenExpires' => $u['Token_Expires'] ?? null,
+        'phone' => $u['Phone'] ?? null,
+        'address' => $u['Address'] ?? null,
     ]
   ]);
 } catch (Throwable $e) {
