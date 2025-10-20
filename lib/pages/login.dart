@@ -338,6 +338,47 @@ class _LoginPageState extends State<LoginPage> {
           // We avoid capturing BuildContext across async gaps; dialog is shown later.
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('token', token);
+
+          // Try to read driver id and verification flag directly from the login response
+          bool? serverVerifiedBool;
+          int? serverId;
+          if (data is Map) {
+            final v =
+                data['is_verified'] ?? data['isVerified'] ?? data['verified'];
+            if (v != null) {
+              serverVerifiedBool = (v is bool)
+                  ? v
+                  : (v.toString() == '1' ||
+                        v.toString().toLowerCase() == 'true');
+            }
+            final topId = data['Driver_ID'] ?? data['driver_id'] ?? data['id'];
+            if (topId is int) serverId = topId;
+            if (topId is String) serverId = int.tryParse(topId);
+            if (serverId == null && data['user'] is Map) {
+              final u = data['user'] as Map;
+              final uid = u['id'] ?? u['Driver_ID'] ?? u['driver_id'];
+              if (uid is int) serverId = uid;
+              if (uid is String) serverId = int.tryParse(uid);
+              if (serverVerifiedBool == null && u['is_verified'] != null) {
+                final uv = u['is_verified'];
+                serverVerifiedBool = (uv is bool)
+                    ? uv
+                    : (uv.toString() == '1' ||
+                          uv.toString().toLowerCase() == 'true');
+              }
+            }
+          }
+
+          // Persist server verification if present
+          if (serverId != null && serverVerifiedBool != null) {
+            _driverId ??= serverId;
+            final key = 'is_verified_$serverId';
+            if (serverVerifiedBool) {
+              await prefs.setBool(key, true);
+            } else {
+              await prefs.remove(key);
+            }
+          }
           // Play motorcycle animation on successful login
           MotorcycleAnimationService.instance.show();
           // If this device is already locally verified for this driver, skip dialog.
@@ -364,6 +405,13 @@ class _LoginPageState extends State<LoginPage> {
             );
 
             if (verified == true) {
+              // ensure local persistence in case verification happened remotely
+              try {
+                final prefs = await SharedPreferences.getInstance();
+                if (_driverId != null) {
+                  await prefs.setBool('is_verified_$_driverId', true);
+                }
+              } catch (_) {}
               if (!mounted) return;
               Navigator.pushReplacement(
                 context,

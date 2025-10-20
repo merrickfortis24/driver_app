@@ -202,6 +202,10 @@ class DeliveryApi {
         estimatedTime: (e['estimatedTime'] ?? '').toString(),
         status: _mapStatus((e['status'] ?? 'assigned').toString()),
         paymentStatus: (e['paymentStatus'] ?? '').toString(),
+        paymentMethod:
+            (e['paymentMethod'] ?? e['payment_method'] ?? '').toString().isEmpty
+            ? null
+            : (e['paymentMethod'] ?? e['payment_method']).toString(),
         createdAt: _safeDate(e['createdAt']) ?? DateTime.now(),
         pickedUpAt: _safeDate(e['pickedUpAt']),
         deliveredAt: _safeDate(e['deliveredAt']),

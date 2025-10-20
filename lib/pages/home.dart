@@ -388,22 +388,13 @@ class _HomePageState extends State<HomePage> {
                   context,
                 ).push(MaterialPageRoute(builder: (_) => MapPage(order: o)));
               },
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x11000000),
-                blurRadius: 8,
-                offset: Offset(0, 2),
-              ),
-            ],
-          ),
-          padding: const EdgeInsets.all(14),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -424,9 +415,17 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                   const Spacer(),
-                  Text(
-                    'Total: ${_peso.format(o.totalAmount)}',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  // show payment method icon/badge and total amount
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      _paymentIcon(o.paymentMethod, cs),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Total: ${_peso.format(o.totalAmount)}',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -442,7 +441,7 @@ class _HomePageState extends State<HomePage> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.place_outlined, size: 16, color: null),
+                  const Icon(Icons.place_outlined, size: 16),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -878,6 +877,82 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
+}
+
+Widget _paymentIcon(String? method, ColorScheme cs) {
+  final m = (method ?? '').toLowerCase();
+  if (m.contains('gcash')) {
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircleAvatar(
+            radius: 10,
+            backgroundColor: Colors.green,
+            child: const Text(
+              'G',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          const Text(
+            'Gcash',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+  if (m.contains('cod') || m.contains('cash')) {
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.payments_outlined, size: 18, color: Colors.orange),
+          const SizedBox(width: 6),
+          const Text(
+            'Cash',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+  if (m.isNotEmpty) {
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.payment, size: 18),
+          const SizedBox(width: 6),
+          Text(
+            method ?? '',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+  return const SizedBox.shrink();
 }
 
 enum SortOption { distance, amount, status }

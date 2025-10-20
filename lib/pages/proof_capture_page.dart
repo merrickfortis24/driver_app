@@ -1,5 +1,4 @@
 import 'dart:typed_data';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/delivery_api.dart';
@@ -16,7 +15,8 @@ class ProofCapturePage extends StatefulWidget {
 class _ProofCapturePageState extends State<ProofCapturePage> {
   final _picker = ImagePicker();
   final _api = DeliveryApi.instance;
-  final List<XFile> _photos = [];
+  final List<Uint8List> _photoBytes = [];
+  final List<String> _photoNames = [];
   bool _uploading = false;
   String? _error;
   final _amountCtrl = TextEditingController();
@@ -27,12 +27,19 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
     super.initState();
     // Only prompt for amount for COD/unpaid-like statuses; prefill with total
     final ps = widget.order.paymentStatus.toLowerCase();
+    final pm = (widget.order.paymentMethod ?? '').toLowerCase();
+    // Treat online payment methods (gcash, paypal, card, online) as not requiring cash collection
+    final isOnline =
+        pm.contains('gcash') ||
+        pm.contains('online') ||
+        pm.contains('card') ||
+        pm.contains('paypal');
     final isCodOrUnpaid =
         ps.contains('cod') ||
         ps.contains('cash') ||
         ps.contains('unpaid') ||
         ps.contains('pending');
-    _showAmountField = isCodOrUnpaid;
+    _showAmountField = isCodOrUnpaid && !isOnline;
     if (_showAmountField) {
       _amountCtrl.text = widget.order.totalAmount.toStringAsFixed(2);
     }
@@ -42,7 +49,11 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
     try {
       final picked = await _picker.pickImage(source: src, imageQuality: 85);
       if (picked != null) {
-        setState(() => _photos.add(picked));
+        final bytes = await picked.readAsBytes();
+        setState(() {
+          _photoBytes.add(bytes);
+          _photoNames.add(picked.name);
+        });
       }
     } catch (e) {
       setState(() => _error = 'Failed to pick image');
@@ -56,24 +67,17 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
     });
     try {
       // Photos
-      List<Uint8List> photoBytes = [];
-      List<String> names = [];
-      for (final xf in _photos) {
-        final bytes = await xf.readAsBytes();
-        photoBytes.add(bytes);
-        names.add(xf.name);
-      }
-      if (photoBytes.isNotEmpty) {
-        await _api.uploadProofPhotos(
-          widget.order.id,
-          photoBytes,
-          fileNames: names,
-        );
-      }
+      final photoBytes = List<Uint8List>.from(_photoBytes);
+      final names = List<String>.from(_photoNames);
       // Require at least one photo as proof
       if (photoBytes.isEmpty) {
         throw Exception('Please add at least one photo as proof of delivery.');
       }
+      await _api.uploadProofPhotos(
+        widget.order.id,
+        photoBytes,
+        fileNames: names,
+      );
       if (!mounted) return;
       double? amount;
       if (_showAmountField) {
@@ -131,13 +135,13 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                for (final p in _photos)
+                for (var i = 0; i < _photoBytes.length; i++)
                   Stack(
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
-                        child: Image.file(
-                          File(p.path),
+                        child: Image.memory(
+                          _photoBytes[i],
                           width: 90,
                           height: 90,
                           fit: BoxFit.cover,
@@ -147,7 +151,10 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
                         right: 0,
                         top: 0,
                         child: InkWell(
-                          onTap: () => setState(() => _photos.remove(p)),
+                          onTap: () => setState(() {
+                            _photoBytes.removeAt(i);
+                            _photoNames.removeAt(i);
+                          }),
                           child: Container(
                             decoration: BoxDecoration(
                               color: Colors.black54,
@@ -164,7 +171,7 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
                       ),
                     ],
                   ),
-                if (_photos.length < 5)
+                if (_photoBytes.length < 5)
                   OutlinedButton.icon(
                     onPressed: _uploading
                         ? null
@@ -172,7 +179,7 @@ class _ProofCapturePageState extends State<ProofCapturePage> {
                     icon: const Icon(Icons.photo_camera),
                     label: const Text('Camera'),
                   ),
-                if (_photos.length < 5)
+                if (_photoBytes.length < 5)
                   OutlinedButton.icon(
                     onPressed: _uploading
                         ? null

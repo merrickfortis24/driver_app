@@ -584,7 +584,19 @@ class _ProfilePageState extends State<ProfilePage> {
                   onPressed: _logout,
                   icon: const Icon(Icons.logout),
                   label: const Text('Log out'),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(
+                      context,
+                    ).colorScheme.error, // theme-aware
+                    foregroundColor: Theme.of(
+                      context,
+                    ).colorScheme.onError, // readable text
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                  ),
                 ),
               ],
             ),

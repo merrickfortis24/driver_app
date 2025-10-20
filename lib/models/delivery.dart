@@ -30,6 +30,7 @@ class DeliveryOrder {
   final String estimatedTime;
   OrderStatus status;
   final String paymentStatus;
+  final String? paymentMethod;
   final DateTime createdAt;
   DateTime? pickedUpAt;
   DateTime? deliveredAt;
@@ -48,6 +49,7 @@ class DeliveryOrder {
     required this.estimatedTime,
     required this.status,
     required this.paymentStatus,
+    this.paymentMethod,
     required this.createdAt,
     this.pickedUpAt,
     this.deliveredAt,
