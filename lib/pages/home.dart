@@ -345,20 +345,20 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Color _statusColor(OrderStatus s) {
+  Color _statusColor(OrderStatus s, ColorScheme cs) {
     switch (s) {
       case OrderStatus.assigned:
-        return Colors.orange;
+        return cs.secondary;
       case OrderStatus.accepted:
-        return Colors.blue;
+        return cs.primary;
       case OrderStatus.rejected:
-        return Colors.red;
+        return cs.error;
       case OrderStatus.onTheWay:
-        return Colors.indigo;
+        return cs.tertiary; // requires Material 3 color scheme
       case OrderStatus.pickedUp:
-        return Colors.teal;
+        return cs.secondaryContainer;
       case OrderStatus.delivered:
-        return Colors.green;
+        return cs.primaryContainer;
     }
   }
 
@@ -455,7 +455,7 @@ class _HomePageState extends State<HomePage> {
 
   Widget _orderTile(DeliveryOrder o) {
     final cs = Theme.of(context).colorScheme;
-    final color = _statusColor(o.status);
+    final color = _statusColor(o.status, cs);
     final isHighlighted = _highlightedOrderIds.contains(o.id);
     final baseColor = cs.surface;
     final highlightColor = Theme.of(
@@ -517,6 +517,9 @@ class _HomePageState extends State<HomePage> {
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         _paymentIcon(o.paymentMethod, cs),
+                        const SizedBox(height: 6),
+                        // show paid/unpaid badge
+                        _paymentBadge(o.paymentStatus, cs),
                         const SizedBox(height: 6),
                         Text(
                           'Total: ${_peso.format(o.totalAmount)}',
@@ -1050,13 +1053,70 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
+Widget _paymentBadge(String status, ColorScheme cs) {
+  final s = status.toLowerCase();
+  if (s.contains('paid')) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: cs.primaryContainer,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cs.primary.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.check_circle, size: 14, color: cs.primary),
+          const SizedBox(width: 6),
+          Text(
+            'Paid',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: cs.onPrimaryContainer,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  if (s.contains('unpaid') || s.isEmpty) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: cs.errorContainer,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cs.error.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.warning_amber_rounded, size: 14, color: cs.error),
+          const SizedBox(width: 6),
+          Text(
+            'Unpaid',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: cs.onErrorContainer,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  return const SizedBox.shrink();
+}
+
 Widget _paymentIcon(String? method, ColorScheme cs) {
   final m = (method ?? '').toLowerCase();
   if (m.contains('gcash')) {
     return Container(
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: Colors.green.shade50,
+        color: cs.primaryContainer,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -1064,20 +1124,24 @@ Widget _paymentIcon(String? method, ColorScheme cs) {
         children: [
           CircleAvatar(
             radius: 10,
-            backgroundColor: Colors.green,
-            child: const Text(
+            backgroundColor: cs.primary,
+            child: Text(
               'G',
               style: TextStyle(
-                color: Colors.white,
+                color: cs.onPrimary,
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
               ),
             ),
           ),
           const SizedBox(width: 6),
-          const Text(
+          Text(
             'Gcash',
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: cs.onPrimaryContainer,
+            ),
           ),
         ],
       ),
@@ -1087,17 +1151,21 @@ Widget _paymentIcon(String? method, ColorScheme cs) {
     return Container(
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: Colors.orange.shade50,
+        color: cs.secondaryContainer,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.payments_outlined, size: 18, color: Colors.orange),
+          Icon(Icons.payments_outlined, size: 18, color: cs.secondary),
           const SizedBox(width: 6),
-          const Text(
+          Text(
             'Cash',
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: cs.onSecondaryContainer,
+            ),
           ),
         ],
       ),
@@ -1117,7 +1185,11 @@ Widget _paymentIcon(String? method, ColorScheme cs) {
           const SizedBox(width: 6),
           Text(
             method ?? '',
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: cs.onSurface,
+            ),
           ),
         ],
       ),
