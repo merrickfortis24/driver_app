@@ -10,6 +10,7 @@ void main() {
     // Print to console with a concise format — Flutter tooling will capture this.
     // Replace or extend this handler in production if needed.
     // ignore: avoid_print
+    // hellopo
     print(
       '${record.level.name}: ${record.loggerName}: ${record.time}: ${record.message}',
     );
