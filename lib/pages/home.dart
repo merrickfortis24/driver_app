@@ -1,16 +1,27 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher_string.dart';
+import '../services/theme_controller.dart';
+import '../widgets/header_icon.dart';
 import '../models/delivery.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/delivery_api.dart';
 import '../services/delivery_exceptions.dart';
+import '../services/animation_controller.dart';
 import 'login.dart';
 import 'map_page.dart';
+import 'proof_capture_page.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  final String initialTab;
+  final bool showTopTabs; // controls whether the Active/History chips are shown
+  const HomePage({
+    super.key,
+    this.initialTab = 'active',
+    this.showTopTabs = true,
+  });
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -21,14 +32,34 @@ class _HomePageState extends State<HomePage> {
   final _api = DeliveryApi.instance;
 
   List<DeliveryOrder> _orders = [];
+  int _pendingNewOrders = 0;
   bool _loading = true;
   String? _error;
   String _activeTab = 'active'; // 'active' | 'history'
-  bool _refreshing = false;
+  // bool _refreshing = false; // removed: app bar refresh button was removed
+
+  // Sorting/Filtering
+  SortOption _sort = SortOption.status;
+  OrderStatus? _activeFilter; // null = All
+  OrderStatus? _historyFilter; // null = All
+  Position? _position; // cached user location for distance sort
+  bool _gettingPosition = false;
+  bool _positionRequestedOnce =
+      false; // avoid rescheduling multiple times per frame
+  static const double _avgSpeedKmh = 25; // rough urban average for ETA
+  // Polling for new orders
+  Timer? _pollTimer;
+  String? _lastUpdateIso;
+  // Controller for the main orders list so we can scroll to top when viewing new items
+  late final ScrollController _scrollController;
+  // Temporarily highlight newly merged orders
+  final Set<String> _highlightedOrderIds = {};
 
   @override
   void initState() {
     super.initState();
+    _activeTab = widget.initialTab;
+    _scrollController = ScrollController();
     _load();
   }
 
@@ -38,6 +69,15 @@ class _HomePageState extends State<HomePage> {
       _error = null;
     });
     try {
+      // Load persisted last-seen timestamp so reopened app doesn't treat old orders as new
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final saved = prefs.getString('last_seen_orders_iso');
+        if (saved != null && saved.isNotEmpty) {
+          _lastUpdateIso = saved;
+        }
+      } catch (_) {}
+
       final orders = await _api.fetchOrders();
       if (mounted) {
         setState(() => _orders = orders);
@@ -60,16 +100,26 @@ class _HomePageState extends State<HomePage> {
       }
 
       final message = e is ApiException ? e.message : e.toString();
-      if (mounted) setState(() => _error = message);
+      if (mounted) {
+        setState(() => _error = message);
+      }
     } finally {
       if (mounted) {
         setState(() => _loading = false);
+        // start polling after initial load
+        _startPolling();
       }
     }
   }
 
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   Future<void> _refresh() async {
-    setState(() => _refreshing = true);
     try {
       final orders = await _api.fetchOrders();
       if (mounted) {
@@ -94,26 +144,221 @@ class _HomePageState extends State<HomePage> {
       }
     } finally {
       await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
+  }
+
+  // Polling helper: check the lightweight changes endpoint and refresh when new orders exist
+  Future<void> _checkForChanges() async {
+    try {
+      final api = DeliveryApi.instance;
+      final changes = await api.fetchChanges(lastUpdate: _lastUpdateIso);
+      if (changes == null) return;
+      // update stored lastUpdate for next poll
+      _lastUpdateIso = changes.lastUpdate ?? _lastUpdateIso;
+      if (changes.newCount > 0) {
+        // Merge changed orders into existing list (less bandwidth than re-fetching all)
+        final changedRaw = changes.orders; // list of maps
+        final merged = [..._orders];
+        final List<String> newlyHighlighted = [];
+        for (final r in changedRaw) {
+          try {
+            final order = api.parseOrder(Map<String, dynamic>.from(r));
+            final idx = merged.indexWhere((o) => o.id == order.id);
+            if (idx >= 0) {
+              merged[idx] = order; // replace existing
+              newlyHighlighted.add(order.id);
+            } else {
+              merged.insert(0, order); // new orders at top
+              newlyHighlighted.add(order.id);
+            }
+          } catch (_) {}
+        }
+        if (!mounted) return;
+        setState(() {
+          _orders = merged;
+          _pendingNewOrders += changes.newCount;
+          _highlightedOrderIds.addAll(newlyHighlighted);
+        });
+
+        // Remove highlights after a short delay so the animation can play
+        Timer(const Duration(milliseconds: 1500), () {
+          if (!mounted) return;
+          setState(() {
+            _highlightedOrderIds.removeAll(newlyHighlighted);
+          });
+        });
+      }
+    } catch (_) {
+      // ignore transient errors; we can add backoff later
+    }
+  }
+
+  void _startPolling() {
+    _pollTimer?.cancel();
+    // poll every 10 seconds
+    _pollTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _checkForChanges(),
+    );
+  }
+
+  // Ensure we have a current position when sorting by distance.
+  Future<void> _ensurePosition() async {
+    if (_position != null || _gettingPosition) {
+      return;
+    }
+    setState(() => _gettingPosition = true);
+    try {
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Location permission denied. Distance sort may be inaccurate.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.best,
+        ),
+      ).timeout(const Duration(seconds: 10));
       if (mounted) {
-        setState(() => _refreshing = false);
+        setState(() => _position = pos);
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not get current location.')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _gettingPosition = false);
       }
     }
   }
 
-  Color _statusColor(OrderStatus s) {
+  double _distanceMeters(DeliveryOrder o) {
+    if (_position == null || o.latitude == null || o.longitude == null) {
+      return double.infinity;
+    }
+    return Geolocator.distanceBetween(
+      _position!.latitude,
+      _position!.longitude,
+      o.latitude!,
+      o.longitude!,
+    );
+  }
+
+  Duration _etaFromMeters(double meters) {
+    if (meters.isInfinite || meters.isNaN) return Duration.zero;
+    final mps = _avgSpeedKmh * 1000 / 3600; // meters per second
+    if (mps <= 0) return Duration.zero;
+    final secs = (meters / mps).round();
+    return Duration(seconds: secs);
+  }
+
+  String _formatDistance(double meters) {
+    if (meters.isInfinite || meters.isNaN) return '';
+    if (meters < 1000) return '${meters.toStringAsFixed(0)} m';
+    return '${(meters / 1000).toStringAsFixed(1)} km';
+  }
+
+  String _formatEta(Duration d) {
+    if (d == Duration.zero) return '';
+    if (d.inMinutes < 1) return '<1 min';
+    if (d.inMinutes < 60) return '${d.inMinutes} min';
+    final h = d.inHours;
+    final m = d.inMinutes % 60;
+    return m == 0 ? '$h h' : '$h h $m min';
+  }
+
+  int _statusRank(OrderStatus s) {
     switch (s) {
       case OrderStatus.assigned:
-        return Colors.orange;
+        return 0;
       case OrderStatus.accepted:
-        return Colors.blue;
-      case OrderStatus.rejected:
-        return Colors.red;
+        return 1;
       case OrderStatus.onTheWay:
-        return Colors.indigo;
+        return 2;
       case OrderStatus.pickedUp:
-        return Colors.teal;
+        return 3;
       case OrderStatus.delivered:
-        return Colors.green;
+        return 4;
+      case OrderStatus.rejected:
+        return 5;
+    }
+  }
+
+  List<DeliveryOrder> _applySort(List<DeliveryOrder> items) {
+    final list = [...items];
+    switch (_sort) {
+      case SortOption.amount:
+        list.sort((a, b) => b.totalAmount.compareTo(a.totalAmount));
+        break;
+      case SortOption.status:
+        list.sort(
+          (a, b) => _statusRank(a.status).compareTo(_statusRank(b.status)),
+        );
+        break;
+      case SortOption.distance:
+        // Schedule a position fetch after the current frame to avoid setState during build.
+        if (_position == null && !_gettingPosition) {
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _ensurePosition(),
+          );
+        }
+        list.sort((a, b) => _distanceMeters(a).compareTo(_distanceMeters(b)));
+        break;
+    }
+    return list;
+  }
+
+  String _sortLabel(SortOption s) {
+    switch (s) {
+      case SortOption.distance:
+        return 'Distance';
+      case SortOption.amount:
+        return 'Amount';
+      case SortOption.status:
+        return 'Status';
+    }
+  }
+
+  IconData _sortIcon(SortOption s) {
+    switch (s) {
+      case SortOption.distance:
+        return Icons.place_outlined;
+      case SortOption.amount:
+        return Icons.attach_money;
+      case SortOption.status:
+        return Icons.flag_outlined;
+    }
+  }
+
+  Color _statusColor(OrderStatus s, ColorScheme cs) {
+    switch (s) {
+      case OrderStatus.assigned:
+        return cs.secondary;
+      case OrderStatus.accepted:
+        return cs.primary;
+      case OrderStatus.rejected:
+        return cs.error;
+      case OrderStatus.onTheWay:
+        return cs.tertiary; // requires Material 3 color scheme
+      case OrderStatus.pickedUp:
+        return cs.secondaryContainer;
+      case OrderStatus.delivered:
+        return cs.primaryContainer;
     }
   }
 
@@ -142,6 +387,8 @@ class _HomePageState extends State<HomePage> {
           TextButton(
             onPressed: () async {
               await _api.acceptOrder(o.id);
+              // Play motorcycle animation when an order is accepted
+              MotorcycleAnimationService.instance.show();
               _refresh();
             },
             child: const Text('Accept'),
@@ -181,8 +428,19 @@ class _HomePageState extends State<HomePage> {
         actions.add(
           TextButton(
             onPressed: () async {
-              await _api.updateOrderStatus(o.id, OrderStatus.delivered);
-              _refresh();
+              // Collect proofs and amount before marking delivered
+              final amount = await Navigator.of(context).push<double>(
+                MaterialPageRoute(builder: (_) => ProofCapturePage(order: o)),
+              );
+              // amount will be null if user cancelled the screen
+              if (amount != null) {
+                await _api.updateOrderStatus(
+                  o.id,
+                  OrderStatus.delivered,
+                  collectedAmount: amount,
+                );
+                if (mounted) _refresh();
+              }
             },
             child: const Text('Delivered'),
           ),
@@ -196,118 +454,166 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _orderTile(DeliveryOrder o) {
-    final color = _statusColor(o.status);
-    return Card(
+    final cs = Theme.of(context).colorScheme;
+    final color = _statusColor(o.status, cs);
+    final isHighlighted = _highlightedOrderIds.contains(o.id);
+    final baseColor = cs.surface;
+    final highlightColor = Theme.of(
+      context,
+    ).colorScheme.primary.withValues(alpha: 0.08);
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeOutQuad,
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      elevation: 0,
-      color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: InkWell(
+      decoration: BoxDecoration(
+        color: isHighlighted ? highlightColor : baseColor,
         borderRadius: BorderRadius.circular(16),
-        // Privacy: don't allow opening map for delivered orders (shown in History)
-        onTap: o.status == OrderStatus.delivered
-            ? null
-            : () {
-                Navigator.of(
-                  context,
-                ).push(MaterialPageRoute(builder: (_) => MapPage(order: o)));
-              },
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x11000000),
-                blurRadius: 8,
-                offset: Offset(0, 2),
-              ),
-            ],
-          ),
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: .12),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: color.withValues(alpha: .5)),
-                    ),
-                    child: Text(
-                      _statusText(o.status),
-                      style: TextStyle(
-                        color: color,
-                        fontWeight: FontWeight.w600,
+      ),
+      child: Card(
+        margin: EdgeInsets.zero,
+        elevation: 0,
+        color: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          // Privacy: don't allow opening map for delivered orders (shown in History)
+          onTap: o.status == OrderStatus.delivered
+              ? null
+              : () {
+                  Navigator.of(
+                    context,
+                  ).push(MaterialPageRoute(builder: (_) => MapPage(order: o)));
+                },
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: .12),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: color.withValues(alpha: .5)),
+                      ),
+                      child: Text(
+                        _statusText(o.status),
+                        style: TextStyle(
+                          color: color,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                  ),
-                  const Spacer(),
-                  Text(
-                    'Total: ${_peso.format(o.totalAmount)}',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                o.customerName,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(
-                    Icons.place_outlined,
-                    size: 16,
-                    color: Colors.grey,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      o.deliveryAddress,
-                      style: const TextStyle(color: Colors.black87),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                    const Spacer(),
+                    // show payment method icon/badge and total amount
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        _paymentIcon(o.paymentMethod, cs),
+                        const SizedBox(height: 6),
+                        // show paid/unpaid badge
+                        _paymentBadge(o.paymentStatus, cs),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Total: ${_peso.format(o.totalAmount)}',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
-              ),
-              if (o.deliveryInstructions != null &&
-                  o.deliveryInstructions!.isNotEmpty) ...[
-                const SizedBox(height: 6),
+                  ],
+                ),
+                const SizedBox(height: 8),
                 Text(
-                  o.deliveryInstructions!,
-                  style: const TextStyle(color: Colors.grey),
+                  o.customerName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                  ),
                 ),
-              ],
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: -8,
-                children: o.items
-                    .map(
-                      (i) => Chip(
-                        label: Text('${i.quantity} x ${i.name}'),
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                const SizedBox(height: 6),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.place_outlined, size: 16),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        o.deliveryAddress,
+                        style: TextStyle(color: cs.onSurface),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    )
-                    .toList(),
-              ),
-              const SizedBox(height: 8),
-              Row(children: [..._buildActions(o)]),
-              const SizedBox(height: 8),
-              _ArrivalActions(order: o),
-            ],
+                    ),
+                  ],
+                ),
+                // Distance + ETA
+                Builder(
+                  builder: (_) {
+                    final dist = _distanceMeters(o);
+                    if (dist.isInfinite || dist.isNaN) {
+                      return const SizedBox.shrink();
+                    }
+                    final eta = _etaFromMeters(dist);
+                    final distText = _formatDistance(dist);
+                    final etaText = _formatEta(eta);
+                    final showEta = etaText.isNotEmpty;
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.near_me_outlined,
+                            size: 16,
+                            color: cs.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            showEta ? '$distText • ~$etaText' : distText,
+                            style: TextStyle(
+                              color: cs.onSurfaceVariant,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+                if (o.deliveryInstructions != null &&
+                    o.deliveryInstructions!.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    o.deliveryInstructions!,
+                    style: TextStyle(color: cs.onSurfaceVariant),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: -8,
+                  children: o.items
+                      .map(
+                        (i) => Chip(
+                          label: Text('${i.quantity} x ${i.name}'),
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      )
+                      .toList(),
+                ),
+                const SizedBox(height: 8),
+                Row(children: [..._buildActions(o)]),
+                const SizedBox(height: 8),
+                _ArrivalActions(order: o),
+              ],
+            ),
           ),
         ),
       ),
@@ -316,87 +622,93 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    // If we plan to show distance on cards and we don't have a position yet,
+    // request it after this frame (avoids setState during build).
+    if (_position == null && !_gettingPosition && !_positionRequestedOnce) {
+      _positionRequestedOnce = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _ensurePosition();
+        // allow future re-requests if it failed or permissions change
+        _positionRequestedOnce = false;
+      });
+    }
+    final brightness = Theme.of(context).brightness;
+    Color headerBg() {
+      // keep a soft beige on light mode; in dark mode use a darker, desaturated
+      // variant so the header doesn't visually clash with dark scaffold.
+      return brightness == Brightness.dark
+          ? const Color(0xFF2B2724)
+          : const Color(0xFFFAF6F0);
+    }
+
     final header = PreferredSize(
-      preferredSize: const Size.fromHeight(110),
+      // Match Cash/Profile header height and layout for visual consistency
+      preferredSize: const Size.fromHeight(86),
       child: AppBar(
         automaticallyImplyLeading: false,
-        centerTitle: false,
         elevation: 0,
         flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFF6A5AE0), Color(0xFF4C6FD7)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+          decoration: BoxDecoration(
+            color: headerBg(),
+            borderRadius: const BorderRadius.vertical(
+              bottom: Radius.circular(20),
             ),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x12000000),
+                blurRadius: 8,
+                offset: Offset(0, 2),
+              ),
+            ],
           ),
           child: SafeArea(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: .2),
-                      borderRadius: BorderRadius.circular(12),
+                  // Keep dynamic title: show 'History' if active tab is history
+                  if (_activeTab == 'history')
+                    HeaderIcon(title: 'History', icon: Icons.history)
+                  else
+                    HeaderIcon(
+                      title: 'Welcome back!',
+                      icon: Icons.home_outlined,
+                      subtitle: 'Driver',
                     ),
-                    child: const Icon(
-                      Icons.local_shipping_outlined,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'Welcome back!',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        SizedBox(height: 2),
-                        Text(
-                          'Driver',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w400,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: _refreshing ? null : _refresh,
-                    icon: _refreshing
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
+                  const Spacer(),
+                  ValueListenableBuilder<ThemeMode>(
+                    valueListenable: ThemeController.instance.mode,
+                    builder: (context, mode, _) {
+                      final isDark = mode == ThemeMode.dark;
+                      return Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () {
+                            ThemeController.instance.set(
+                              isDark ? ThemeMode.light : ThemeMode.dark,
+                            );
+                          },
+                          child: Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEFE6DA),
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                          )
-                        : const Icon(Icons.refresh, color: Colors.white),
-                  ),
-                  IconButton(
-                    onPressed: () async {
-                      // simple logout: clear token and go to LoginPage
-                      // ignore: use_build_context_synchronously
-                      Navigator.of(context).pushAndRemoveUntil(
-                        MaterialPageRoute(builder: (_) => const LoginPage()),
-                        (route) => false,
+                            child: Center(
+                              child: Icon(
+                                isDark
+                                    ? Icons.dark_mode
+                                    : Icons.nightlight_round,
+                                color: const Color(0xFF6B4F32),
+                                size: 20,
+                              ),
+                            ),
+                          ),
+                        ),
                       );
                     },
-                    icon: const Icon(Icons.logout, color: Colors.white),
                   ),
                 ],
               ),
@@ -446,55 +758,87 @@ class _HomePageState extends State<HomePage> {
       ),
     );
 
-    final tabs = Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      child: Row(
+    // Top Active/History buttons removed in favor of bottom navigation.
+
+    // Sort and Filter controls
+    final sortAndFilter = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: () => setState(() => _activeTab = 'active'),
-              icon: const Icon(Icons.place_outlined),
-              label: const Text('Active Orders'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _activeTab == 'active'
-                    ? Colors.white
-                    : Colors.black87,
-                backgroundColor: _activeTab == 'active'
-                    ? const Color(0xFF6A5AE0)
-                    : Colors.white,
-                side: BorderSide(
-                  color: _activeTab == 'active'
-                      ? const Color(0xFF6A5AE0)
-                      : Colors.black12,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+          Row(
+            children: [
+              PopupMenuButton<SortOption>(
+                tooltip: 'Sort',
+                onSelected: (v) => setState(() => _sort = v),
+                itemBuilder: (context) => const [
+                  PopupMenuItem(
+                    value: SortOption.distance,
+                    child: ListTile(
+                      leading: Icon(Icons.place_outlined),
+                      title: Text('Distance (nearest)'),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: SortOption.amount,
+                    child: ListTile(
+                      leading: Icon(Icons.attach_money),
+                      title: Text('Amount (highest)'),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: SortOption.status,
+                    child: ListTile(
+                      leading: Icon(Icons.flag_outlined),
+                      title: Text('Status'),
+                    ),
+                  ),
+                ],
+                child: OutlinedButton.icon(
+                  onPressed: null, // triggers popup by parent
+                  icon: Icon(_sortIcon(_sort)),
+                  label: Text('Sort: ${_sortLabel(_sort)}'),
                 ),
               ),
-            ),
+              const Spacer(),
+            ],
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: () => setState(() => _activeTab = 'history'),
-              icon: const Icon(Icons.history),
-              label: const Text('History'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _activeTab == 'history'
-                    ? Colors.white
-                    : Colors.black87,
-                backgroundColor: _activeTab == 'history'
-                    ? const Color(0xFF6A5AE0)
-                    : Colors.white,
-                side: BorderSide(
-                  color: _activeTab == 'history'
-                      ? const Color(0xFF6A5AE0)
-                      : Colors.black12,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children:
+                  (_activeTab == 'active'
+                          ? const [
+                              OrderStatus.assigned,
+                              OrderStatus.accepted,
+                              OrderStatus.onTheWay,
+                              OrderStatus.pickedUp,
+                            ]
+                          : const [OrderStatus.delivered, OrderStatus.rejected])
+                      .map(
+                        (s) => Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(_statusText(s)),
+                            selected:
+                                (_activeTab == 'active'
+                                    ? _activeFilter
+                                    : _historyFilter) ==
+                                s,
+                            onSelected: (sel) {
+                              setState(() {
+                                if (_activeTab == 'active') {
+                                  _activeFilter = sel ? s : null;
+                                } else {
+                                  _historyFilter = sel ? s : null;
+                                }
+                              });
+                            },
+                          ),
+                        ),
+                      )
+                      .toList(),
             ),
           ),
         ],
@@ -532,7 +876,7 @@ class _HomePageState extends State<HomePage> {
               );
             }
 
-            final items = _activeTab == 'active'
+            var items = _activeTab == 'active'
                 ? _orders
                       .where(
                         (o) =>
@@ -550,6 +894,16 @@ class _HomePageState extends State<HomePage> {
                       )
                       .toList();
 
+            // Apply status filters
+            if (_activeTab == 'active' && _activeFilter != null) {
+              items = items.where((o) => o.status == _activeFilter).toList();
+            } else if (_activeTab == 'history' && _historyFilter != null) {
+              items = items.where((o) => o.status == _historyFilter).toList();
+            }
+
+            // Apply sorting
+            items = _applySort(items);
+
             if (items.isEmpty) {
               return ListView(
                 children: [
@@ -557,7 +911,9 @@ class _HomePageState extends State<HomePage> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Card(
-                      color: const Color(0xFFF7F7FB),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
                       elevation: 0,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
@@ -571,7 +927,9 @@ class _HomePageState extends State<HomePage> {
                                   ? Icons.inventory_2_outlined
                                   : Icons.history,
                               size: 48,
-                              color: Colors.grey,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
                             ),
                             const SizedBox(height: 12),
                             Text(
@@ -587,7 +945,11 @@ class _HomePageState extends State<HomePage> {
                               _activeTab == 'active'
                                   ? 'New delivery assignments will appear here'
                                   : 'Completed deliveries will appear here',
-                              style: const TextStyle(color: Colors.black54),
+                              style: TextStyle(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
                               textAlign: TextAlign.center,
                             ),
                           ],
@@ -600,6 +962,7 @@ class _HomePageState extends State<HomePage> {
             }
 
             return ListView.builder(
+              controller: _scrollController,
               itemCount: items.length,
               itemBuilder: (context, idx) => _orderTile(items[idx]),
             );
@@ -609,15 +972,233 @@ class _HomePageState extends State<HomePage> {
     );
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: header,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [stats, tabs, list],
+        children: [
+          if (_pendingNewOrders > 0)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              child: Material(
+                elevation: 2,
+                borderRadius: BorderRadius.circular(12),
+                color: Theme.of(context).colorScheme.primaryContainer,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '$_pendingNewOrders new order(s)',
+                          style: TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onPrimaryContainer,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () async {
+                          // Persist the last seen timestamp so reopening the app
+                          // won't show these orders as new again.
+                          try {
+                            final prefs = await SharedPreferences.getInstance();
+                            final nowIso =
+                                _lastUpdateIso ??
+                                DateTime.now().toUtc().toIso8601String();
+                            await prefs.setString(
+                              'last_seen_orders_iso',
+                              nowIso,
+                            );
+                            _lastUpdateIso = nowIso;
+                          } catch (_) {}
+
+                          // Clear the pending counter first so the banner hides.
+                          setState(() => _pendingNewOrders = 0);
+                          // Animate to top so newly inserted orders (inserted at index 0)
+                          // become visible. If controller isn't attached yet or already
+                          // at top, this is a no-op.
+                          try {
+                            await _scrollController.animateTo(
+                              0,
+                              duration: const Duration(milliseconds: 450),
+                              curve: Curves.easeInOut,
+                            );
+                          } catch (_) {
+                            // controller may be disposed or not attached; ignore.
+                          }
+                        },
+                        child: const Text('View'),
+                      ),
+                      TextButton(
+                        onPressed: () => setState(() => _pendingNewOrders = 0),
+                        child: const Text('Dismiss'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          stats,
+          sortAndFilter,
+          list,
+        ],
       ),
     );
   }
 }
+
+Widget _paymentBadge(String status, ColorScheme cs) {
+  final s = status.toLowerCase();
+  if (s.contains('paid')) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: cs.primaryContainer,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cs.primary.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.check_circle, size: 14, color: cs.primary),
+          const SizedBox(width: 6),
+          Text(
+            'Paid',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: cs.onPrimaryContainer,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  if (s.contains('unpaid') || s.isEmpty) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: cs.errorContainer,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cs.error.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.warning_amber_rounded, size: 14, color: cs.error),
+          const SizedBox(width: 6),
+          Text(
+            'Unpaid',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: cs.onErrorContainer,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  return const SizedBox.shrink();
+}
+
+Widget _paymentIcon(String? method, ColorScheme cs) {
+  final m = (method ?? '').toLowerCase();
+  if (m.contains('gcash')) {
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: cs.primaryContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircleAvatar(
+            radius: 10,
+            backgroundColor: cs.primary,
+            child: Text(
+              'G',
+              style: TextStyle(
+                color: cs.onPrimary,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            'Gcash',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: cs.onPrimaryContainer,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  if (m.contains('cod') || m.contains('cash')) {
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: cs.secondaryContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.payments_outlined, size: 18, color: cs.secondary),
+          const SizedBox(width: 6),
+          Text(
+            'Cash',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: cs.onSecondaryContainer,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  if (m.isNotEmpty) {
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.payment, size: 18),
+          const SizedBox(width: 6),
+          Text(
+            method ?? '',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: cs.onSurface,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  return const SizedBox.shrink();
+}
+
+enum SortOption { distance, amount, status }
 
 class _StatCard extends StatelessWidget {
   final IconData icon;
@@ -633,10 +1214,11 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Expanded(
       child: Card(
         elevation: 0,
-        color: Colors.white,
+        color: cs.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         child: Container(
           decoration: BoxDecoration(
@@ -665,7 +1247,7 @@ class _StatCard extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 label,
-                style: const TextStyle(fontSize: 12, color: Colors.black54),
+                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
               ),
             ],
           ),

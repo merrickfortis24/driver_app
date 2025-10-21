@@ -30,6 +30,7 @@ class DeliveryOrder {
   final String estimatedTime;
   OrderStatus status;
   final String paymentStatus;
+  final String? paymentMethod;
   final DateTime createdAt;
   DateTime? pickedUpAt;
   DateTime? deliveredAt;
@@ -48,6 +49,7 @@ class DeliveryOrder {
     required this.estimatedTime,
     required this.status,
     required this.paymentStatus,
+    this.paymentMethod,
     required this.createdAt,
     this.pickedUpAt,
     this.deliveredAt,
@@ -58,14 +60,22 @@ class Driver {
   final String id;
   final String name;
   final String email;
-  final String phone;
+  final String? phone;
+  final String? address;
   final bool isActive;
+  final DateTime? createdAt;
+  final DateTime? lastLogin;
+  final DateTime? tokenExpires;
 
   Driver({
     required this.id,
     required this.name,
     required this.email,
-    required this.phone,
+    this.phone,
+    this.address,
     required this.isActive,
+    this.createdAt,
+    this.lastLogin,
+    this.tokenExpires,
   });
 }

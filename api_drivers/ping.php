@@ -1,5 +1,5 @@
 <?php
-header('Access-Control-Allow-Origin: *');
+// CORS handled by server-level .htaccess
 header('Content-Type: application/json');
 echo json_encode([
   'ok' => true,

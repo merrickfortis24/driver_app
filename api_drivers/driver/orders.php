@@ -1,7 +1,6 @@
 <?php
-header('Access-Control-Allow-Origin: *'); // dev only
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
-header('Access-Control-Allow-Methods: GET, OPTIONS');
+// CORS handled by server-level .htaccess
+// header() calls removed to avoid duplication
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
 require_once __DIR__ . '/../connection.php';
@@ -90,7 +89,7 @@ $colsCustomerMap = $colsCustomer ? array_combine($colsCustomerLower, $colsCustom
 $select = [];
 $want = [
   'Order_ID','Order_Date','Order_Amount','order_status','Driver_Status','order_type',
-  'Picked_Up_At','payment_received_at','payment_received_by','Contact_Number','customer_lat','customer_lng'
+  'Picked_Up_At','payment_received_at','payment_received_by','Payment_Method','Contact_Number','customer_lat','customer_lng'
 ];
 foreach ($want as $w) {
   $lk = strtolower($w);
@@ -302,7 +301,21 @@ foreach ($orders as $o) {
     'status' => $protoStatus,
     'driverStatus' => $o['Driver_Status'] ?? null,
     'displayStatus' => $displayStatus,
-    'paymentStatus' => (!empty($o['payment_received_at'])) ? 'paid' : 'unpaid',
+  'paymentStatus' => (!empty($o['payment_received_at'])) ? 'paid' : 'unpaid',
+  'paymentMethod' => $o['Payment_Method'] ?? null,
+  // canonical normalized payment_method (lowercased token) for client convenience
+  'payment_method' => (function() use ($o) {
+    $pm = isset($o['Payment_Method']) ? trim(strtolower($o['Payment_Method'])) : '';
+    if ($pm === '') return null;
+    // map common variants
+    if (strpos($pm, 'gcash') !== false) return 'gcash';
+    if (strpos($pm, 'cash on delivery') !== false) return 'cod';
+    if (strpos($pm, 'cash') !== false || strpos($pm, 'cod') !== false) return 'cod';
+    if (strpos($pm, 'card') !== false || strpos($pm, 'visa') !== false || strpos($pm, 'master') !== false) return 'card';
+    if (strpos($pm, 'online') !== false || strpos($pm, 'paypal') !== false || strpos($pm, 'maya') !== false) return 'online';
+    // otherwise return the raw lowercased token
+    return $pm;
+  })(),
     'createdAt' => $o['Order_Date'] ?? null,
     'pickedUpAt' => $o['Picked_Up_At'] ?? null,
     'deliveredAt' => $o['payment_received_at'] ?? null,

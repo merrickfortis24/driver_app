@@ -1,22 +1,7 @@
 <?php
 
-// Allow CORS for browser-based clients (Flutter Web / JS fetch).
-// For production, consider restricting Access-Control-Allow-Origin to your domain.
-if (isset($_SERVER['HTTP_ORIGIN'])) {
-    // Allow the requesting origin (useful for multiple environments).
-    header('Access-Control-Allow-Origin: ' . $_SERVER['HTTP_ORIGIN']);
-} else {
-    header('Access-Control-Allow-Origin: *');
-}
-header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-header('Access-Control-Allow-Headers: Origin, Content-Type, Accept, Authorization, X-Requested-With');
-header('Access-Control-Allow-Credentials: true');
-
-// Handle preflight requests quickly
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(204);
-    exit;
-}
+// CORS is handled at the server level via .htaccess for this API folder in development.
+// Remove these headers from individual files to avoid duplication.
 
 class Database {
     private string $host;

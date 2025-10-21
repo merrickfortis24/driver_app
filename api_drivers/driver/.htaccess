@@ -1,0 +1,27 @@
+# .htaccess - CORS headers for API folder
+# Allows requests from localhost (any port) and the API host 192.168.1.15 during development.
+# Note: in production restrict this to your real frontend origins.
+
+<IfModule mod_setenvif.c>
+    # If Origin matches localhost or 127.0.0.1 or your local API host, set env var
+    SetEnvIfNoCase Origin "^https?://(localhost|127\\.0\\.0\\.1)(:\\d+)?$" CORS_ALLOW_ORIGIN=$0
+    SetEnvIfNoCase Origin "^https?://192\\.168\\.1\\.15(:\\d+)?$" CORS_ALLOW_ORIGIN=$0
+</IfModule>
+
+<IfModule mod_headers.c>
+    Header always set Access-Control-Allow-Origin "%{CORS_ALLOW_ORIGIN}e" env=CORS_ALLOW_ORIGIN
+    Header always set Access-Control-Allow-Credentials "true" env=CORS_ALLOW_ORIGIN
+    Header always set Access-Control-Allow-Methods "GET, POST, OPTIONS" env=CORS_ALLOW_ORIGIN
+    Header always set Access-Control-Allow-Headers "Content-Type, Authorization" env=CORS_ALLOW_ORIGIN
+    # Allow browsers to cache preflight answers for 1 day
+    Header always set Access-Control-Max-Age "86400" env=CORS_ALLOW_ORIGIN
+</IfModule>
+
+# Handle preflight OPTIONS requests by returning 200 quickly (no content)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_METHOD} OPTIONS
+    RewriteRule ^(.*)$ $1 [R=200,L]
+</IfModule>
+
+# End of .htaccess

@@ -1,8 +1,6 @@
 <?php
+// CORS handled by server-level .htaccess
 // Always emit JSON (avoid HTML errors that break mobile JSON parsing)
-header('Access-Control-Allow-Origin: *'); // dev only
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
-header('Access-Control-Allow-Methods: POST, OPTIONS');
 header('Content-Type: application/json');
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); echo json_encode(['ok'=>true]); exit; }
 
@@ -53,6 +51,14 @@ try {
     $hasPwdHash = in_array('Password_Hash', $columns, true);
     $hasPwd = in_array('Password', $columns, true);
     $cols = ['Driver_ID','Name','Gmail'];
+    // If a verification column exists in the table, include it in the main SELECT to avoid a second query.
+    foreach ($columns as $c) {
+        $lc = strtolower($c);
+        if ($lc === 'is_verified' || $lc === 'verified' || $lc === 'isverified') {
+            if (!in_array($c, $cols, true)) $cols[] = $c;
+            break;
+        }
+    }
     if ($hasPwdHash) $cols[] = 'Password_Hash';
     if ($hasPwd) $cols[] = 'Password';
     if (in_array('Api_Token', $columns, true)) $cols[] = 'Api_Token';
@@ -160,12 +166,58 @@ try {
         }
     }
 
+    // Determine verification column if present and read value
+    $verCol = null;
+    foreach ($columns as $c) {
+        $lc = strtolower($c);
+        if ($lc === 'is_verified' || $lc === 'verified' || $lc === 'isverified') {
+            $verCol = $c;
+            break;
+        }
+    }
+    // Ensure we return an explicit boolean for is_verified.
+    // If the verification column is not present, return false.
+    // If the column exists but wasn't included in the earlier SELECT, query it now.
+    $isVerified = false;
+    if ($verCol !== null) {
+        // If the main SELECT included the column, use it. Otherwise, fetch by Driver_ID.
+        if (array_key_exists($verCol, $user)) {
+            $val = $user[$verCol];
+        } else {
+            // Attempt to fetch the column value for this driver explicitly
+            $val = null;
+            if (isset($user['Driver_ID'])) {
+                try {
+                    $q = $db->prepare("SELECT `$verCol` FROM drivers WHERE Driver_ID = ? LIMIT 1");
+                    $q->execute([(int)$user['Driver_ID']]);
+                    $r = $q->fetch(PDO::FETCH_ASSOC);
+                    if ($r && array_key_exists($verCol, $r)) {
+                        $val = $r[$verCol];
+                    }
+                } catch (Throwable $e) {
+                    error_log('driver/login verCol fetch failed: ' . $e->getMessage());
+                    $val = null;
+                }
+            }
+        }
+        if ($val === null || $val === '') {
+            $isVerified = false;
+        } else {
+            $isVerified = (bool)$val;
+        }
+    }
+
+    // Return driver id and verification flag in the login response to let clients skip an extra profile call.
     echo json_encode([
         'token' => $token,
+        'Driver_ID' => isset($user['Driver_ID']) ? (int)$user['Driver_ID'] : null,
+        'driver_id' => isset($user['Driver_ID']) ? (int)$user['Driver_ID'] : null,
+        'is_verified' => $isVerified,
         'user' => [
-            'id' => (int)$user['Driver_ID'],
-            'name' => $user['Name'],
-            'gmail' => $user['Gmail'],
+            'id' => isset($user['Driver_ID']) ? (int)$user['Driver_ID'] : null,
+            'name' => $user['Name'] ?? null,
+            'gmail' => $user['Gmail'] ?? null,
+            'is_verified' => $isVerified,
         ],
     ]);
 } catch (Throwable $e) {
