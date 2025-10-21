@@ -126,7 +126,8 @@ foreach ($addrParts as $a) {
 // customer name from customer table (safe)
 $select[] = isset($colsCustomerMap['customer_name']) ? 'c.`Customer_Name`' : 'NULL AS Customer_Name';
 
-$selectList = implode(', ', $select);
+// include payment table fields so we can use canonical payment.payment_status when deciding paid/unpaid
+$selectList = implode(', ', $select) . ', p.Payment_Method AS payment_table_method, p.payment_status AS payment_table_status';
 
 // prefer a fixed set of statuses (include early pipeline states) for visibility
 $statusList = ['Pending','Processing','Ready to deliver','On the way','Delivered'];
@@ -174,6 +175,7 @@ $sql = "SELECT $selectList
   FROM `orders` o
   LEFT JOIN `order_address` addr ON addr.Order_ID = o.Order_ID
   LEFT JOIN `customer` c ON c.Customer_ID = o.Customer_ID
+  LEFT JOIN `payment` p ON p.Order_ID = o.Order_ID
   WHERE $whereSql
   ORDER BY $orderColumn DESC
   LIMIT 30";
@@ -301,7 +303,29 @@ foreach ($orders as $o) {
     'status' => $protoStatus,
     'driverStatus' => $o['Driver_Status'] ?? null,
     'displayStatus' => $displayStatus,
-  'paymentStatus' => (!empty($o['payment_received_at'])) ? 'paid' : 'unpaid',
+  // Determine paymentStatus conservatively:
+  // 1. If canonical payment.payment_status exists and equals 'Paid' -> paid
+  // 2. Else if payment_received_at exists:
+  //    - If payment method is online (gcash/card/online) -> paid
+  //    - If payment method is COD or unknown -> unpaid (don't infer paid from receipt alone)
+  // 3. Otherwise -> unpaid
+  'paymentStatus' => (function($row){
+    $paymentTableStatus = isset($row['payment_table_status']) ? strtolower(trim($row['payment_table_status'])) : '';
+    if ($paymentTableStatus === 'paid') return 'paid';
+
+    $hasReceipt = !empty($row['payment_received_at']);
+    if (!$hasReceipt) return 'unpaid';
+
+    // Prefer method from payment table, fallback to Order's Payment_Method
+    $method = '';
+    if (!empty($row['payment_table_method'])) $method = strtolower(trim($row['payment_table_method']));
+    elseif (!empty($row['Payment_Method'])) $method = strtolower(trim($row['Payment_Method']));
+
+    $online = ['gcash','card','online','card_online'];
+    if (in_array($method, $online, true)) return 'paid';
+
+    return 'unpaid';
+  })($o),
   'paymentMethod' => $o['Payment_Method'] ?? null,
   // canonical normalized payment_method (lowercased token) for client convenience
   'payment_method' => (function() use ($o) {
