@@ -9,6 +9,7 @@ void main() {
   Logger.root.level = Level.ALL;
   Logger.root.onRecord.listen((record) {
     // ignore: avoid_print
+    // hellopo
     print(
       '${record.level.name}: ${record.loggerName}: ${record.time}: ${record.message}',
     );
