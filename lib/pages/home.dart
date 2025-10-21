@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher_string.dart';
@@ -31,6 +32,7 @@ class _HomePageState extends State<HomePage> {
   final _api = DeliveryApi.instance;
 
   List<DeliveryOrder> _orders = [];
+  int _pendingNewOrders = 0;
   bool _loading = true;
   String? _error;
   String _activeTab = 'active'; // 'active' | 'history'
@@ -45,11 +47,19 @@ class _HomePageState extends State<HomePage> {
   bool _positionRequestedOnce =
       false; // avoid rescheduling multiple times per frame
   static const double _avgSpeedKmh = 25; // rough urban average for ETA
+  // Polling for new orders
+  Timer? _pollTimer;
+  String? _lastUpdateIso;
+  // Controller for the main orders list so we can scroll to top when viewing new items
+  late final ScrollController _scrollController;
+  // Temporarily highlight newly merged orders
+  final Set<String> _highlightedOrderIds = {};
 
   @override
   void initState() {
     super.initState();
     _activeTab = widget.initialTab;
+    _scrollController = ScrollController();
     _load();
   }
 
@@ -59,6 +69,15 @@ class _HomePageState extends State<HomePage> {
       _error = null;
     });
     try {
+      // Load persisted last-seen timestamp so reopened app doesn't treat old orders as new
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final saved = prefs.getString('last_seen_orders_iso');
+        if (saved != null && saved.isNotEmpty) {
+          _lastUpdateIso = saved;
+        }
+      } catch (_) {}
+
       final orders = await _api.fetchOrders();
       if (mounted) {
         setState(() => _orders = orders);
@@ -87,8 +106,17 @@ class _HomePageState extends State<HomePage> {
     } finally {
       if (mounted) {
         setState(() => _loading = false);
+        // start polling after initial load
+        _startPolling();
       }
     }
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _refresh() async {
@@ -117,6 +145,61 @@ class _HomePageState extends State<HomePage> {
     } finally {
       await Future<void>.delayed(const Duration(milliseconds: 300));
     }
+  }
+
+  // Polling helper: check the lightweight changes endpoint and refresh when new orders exist
+  Future<void> _checkForChanges() async {
+    try {
+      final api = DeliveryApi.instance;
+      final changes = await api.fetchChanges(lastUpdate: _lastUpdateIso);
+      if (changes == null) return;
+      // update stored lastUpdate for next poll
+      _lastUpdateIso = changes.lastUpdate ?? _lastUpdateIso;
+      if (changes.newCount > 0) {
+        // Merge changed orders into existing list (less bandwidth than re-fetching all)
+        final changedRaw = changes.orders; // list of maps
+        final merged = [..._orders];
+        final List<String> newlyHighlighted = [];
+        for (final r in changedRaw) {
+          try {
+            final order = api.parseOrder(Map<String, dynamic>.from(r));
+            final idx = merged.indexWhere((o) => o.id == order.id);
+            if (idx >= 0) {
+              merged[idx] = order; // replace existing
+              newlyHighlighted.add(order.id);
+            } else {
+              merged.insert(0, order); // new orders at top
+              newlyHighlighted.add(order.id);
+            }
+          } catch (_) {}
+        }
+        if (!mounted) return;
+        setState(() {
+          _orders = merged;
+          _pendingNewOrders += changes.newCount;
+          _highlightedOrderIds.addAll(newlyHighlighted);
+        });
+
+        // Remove highlights after a short delay so the animation can play
+        Timer(const Duration(milliseconds: 1500), () {
+          if (!mounted) return;
+          setState(() {
+            _highlightedOrderIds.removeAll(newlyHighlighted);
+          });
+        });
+      }
+    } catch (_) {
+      // ignore transient errors; we can add backoff later
+    }
+  }
+
+  void _startPolling() {
+    _pollTimer?.cancel();
+    // poll every 10 seconds
+    _pollTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _checkForChanges(),
+    );
   }
 
   // Ensure we have a current position when sorting by distance.
@@ -373,145 +456,161 @@ class _HomePageState extends State<HomePage> {
   Widget _orderTile(DeliveryOrder o) {
     final cs = Theme.of(context).colorScheme;
     final color = _statusColor(o.status);
-    return Card(
+    final isHighlighted = _highlightedOrderIds.contains(o.id);
+    final baseColor = cs.surface;
+    final highlightColor = Theme.of(
+      context,
+    ).colorScheme.primary.withValues(alpha: 0.08);
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeOutQuad,
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      elevation: 0,
-      color: cs.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: InkWell(
+      decoration: BoxDecoration(
+        color: isHighlighted ? highlightColor : baseColor,
         borderRadius: BorderRadius.circular(16),
-        // Privacy: don't allow opening map for delivered orders (shown in History)
-        onTap: o.status == OrderStatus.delivered
-            ? null
-            : () {
-                Navigator.of(
-                  context,
-                ).push(MaterialPageRoute(builder: (_) => MapPage(order: o)));
-              },
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: .12),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: color.withValues(alpha: .5)),
-                    ),
-                    child: Text(
-                      _statusText(o.status),
-                      style: TextStyle(
-                        color: color,
-                        fontWeight: FontWeight.w600,
+      ),
+      child: Card(
+        margin: EdgeInsets.zero,
+        elevation: 0,
+        color: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          // Privacy: don't allow opening map for delivered orders (shown in History)
+          onTap: o.status == OrderStatus.delivered
+              ? null
+              : () {
+                  Navigator.of(
+                    context,
+                  ).push(MaterialPageRoute(builder: (_) => MapPage(order: o)));
+                },
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
                       ),
-                    ),
-                  ),
-                  const Spacer(),
-                  // show payment method icon/badge and total amount
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      _paymentIcon(o.paymentMethod, cs),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Total: ${_peso.format(o.totalAmount)}',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: .12),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: color.withValues(alpha: .5)),
                       ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                o.customerName,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(Icons.place_outlined, size: 16),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      o.deliveryAddress,
-                      style: TextStyle(color: cs.onSurface),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-              // Distance + ETA
-              Builder(
-                builder: (_) {
-                  final dist = _distanceMeters(o);
-                  if (dist.isInfinite || dist.isNaN) {
-                    return const SizedBox.shrink();
-                  }
-                  final eta = _etaFromMeters(dist);
-                  final distText = _formatDistance(dist);
-                  final etaText = _formatEta(eta);
-                  final showEta = etaText.isNotEmpty;
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.near_me_outlined,
-                          size: 16,
-                          color: cs.onSurfaceVariant,
+                      child: Text(
+                        _statusText(o.status),
+                        style: TextStyle(
+                          color: color,
+                          fontWeight: FontWeight.w600,
                         ),
-                        const SizedBox(width: 6),
+                      ),
+                    ),
+                    const Spacer(),
+                    // show payment method icon/badge and total amount
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        _paymentIcon(o.paymentMethod, cs),
+                        const SizedBox(height: 6),
                         Text(
-                          showEta ? '$distText • ~$etaText' : distText,
-                          style: TextStyle(
-                            color: cs.onSurfaceVariant,
-                            fontSize: 12,
-                          ),
+                          'Total: ${_peso.format(o.totalAmount)}',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                       ],
                     ),
-                  );
-                },
-              ),
-              if (o.deliveryInstructions != null &&
-                  o.deliveryInstructions!.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Text(
-                  o.deliveryInstructions!,
-                  style: TextStyle(color: cs.onSurfaceVariant),
+                  ],
                 ),
-              ],
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: -8,
-                children: o.items
-                    .map(
-                      (i) => Chip(
-                        label: Text('${i.quantity} x ${i.name}'),
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                const SizedBox(height: 8),
+                Text(
+                  o.customerName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.place_outlined, size: 16),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        o.deliveryAddress,
+                        style: TextStyle(color: cs.onSurface),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    )
-                    .toList(),
-              ),
-              const SizedBox(height: 8),
-              Row(children: [..._buildActions(o)]),
-              const SizedBox(height: 8),
-              _ArrivalActions(order: o),
-            ],
+                    ),
+                  ],
+                ),
+                // Distance + ETA
+                Builder(
+                  builder: (_) {
+                    final dist = _distanceMeters(o);
+                    if (dist.isInfinite || dist.isNaN) {
+                      return const SizedBox.shrink();
+                    }
+                    final eta = _etaFromMeters(dist);
+                    final distText = _formatDistance(dist);
+                    final etaText = _formatEta(eta);
+                    final showEta = etaText.isNotEmpty;
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.near_me_outlined,
+                            size: 16,
+                            color: cs.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            showEta ? '$distText • ~$etaText' : distText,
+                            style: TextStyle(
+                              color: cs.onSurfaceVariant,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+                if (o.deliveryInstructions != null &&
+                    o.deliveryInstructions!.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    o.deliveryInstructions!,
+                    style: TextStyle(color: cs.onSurfaceVariant),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: -8,
+                  children: o.items
+                      .map(
+                        (i) => Chip(
+                          label: Text('${i.quantity} x ${i.name}'),
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      )
+                      .toList(),
+                ),
+                const SizedBox(height: 8),
+                Row(children: [..._buildActions(o)]),
+                const SizedBox(height: 8),
+                _ArrivalActions(order: o),
+              ],
+            ),
           ),
         ),
       ),
@@ -860,6 +959,7 @@ class _HomePageState extends State<HomePage> {
             }
 
             return ListView.builder(
+              controller: _scrollController,
               itemCount: items.length,
               itemBuilder: (context, idx) => _orderTile(items[idx]),
             );
@@ -873,7 +973,78 @@ class _HomePageState extends State<HomePage> {
       appBar: header,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [stats, sortAndFilter, list],
+        children: [
+          if (_pendingNewOrders > 0)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              child: Material(
+                elevation: 2,
+                borderRadius: BorderRadius.circular(12),
+                color: Theme.of(context).colorScheme.primaryContainer,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '$_pendingNewOrders new order(s)',
+                          style: TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onPrimaryContainer,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () async {
+                          // Persist the last seen timestamp so reopening the app
+                          // won't show these orders as new again.
+                          try {
+                            final prefs = await SharedPreferences.getInstance();
+                            final nowIso =
+                                _lastUpdateIso ??
+                                DateTime.now().toUtc().toIso8601String();
+                            await prefs.setString(
+                              'last_seen_orders_iso',
+                              nowIso,
+                            );
+                            _lastUpdateIso = nowIso;
+                          } catch (_) {}
+
+                          // Clear the pending counter first so the banner hides.
+                          setState(() => _pendingNewOrders = 0);
+                          // Animate to top so newly inserted orders (inserted at index 0)
+                          // become visible. If controller isn't attached yet or already
+                          // at top, this is a no-op.
+                          try {
+                            await _scrollController.animateTo(
+                              0,
+                              duration: const Duration(milliseconds: 450),
+                              curve: Curves.easeInOut,
+                            );
+                          } catch (_) {
+                            // controller may be disposed or not attached; ignore.
+                          }
+                        },
+                        child: const Text('View'),
+                      ),
+                      TextButton(
+                        onPressed: () => setState(() => _pendingNewOrders = 0),
+                        child: const Text('Dismiss'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          stats,
+          sortAndFilter,
+          list,
+        ],
       ),
     );
   }

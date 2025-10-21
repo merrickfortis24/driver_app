@@ -10,6 +10,17 @@ import 'package:logging/logging.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:flutter/foundation.dart';
 
+class OrdersChanges {
+  final String? lastUpdate;
+  final int newCount;
+  final List<dynamic> orders; // raw map list; caller may map
+  OrdersChanges({
+    this.lastUpdate,
+    required this.newCount,
+    required this.orders,
+  });
+}
+
 class DeliveryApi {
   DeliveryApi._();
   static final DeliveryApi instance = DeliveryApi._();
@@ -143,74 +154,71 @@ class DeliveryApi {
                     : (jsonBody['orders'] is List ? jsonBody['orders'] : []))
               : []);
 
-    return list.map<DeliveryOrder>((e) {
-      final items = (e['items'] as List? ?? [])
-          .map<DeliveryItem>(
-            (i) => DeliveryItem(
-              id: (i['id'] ?? '').toString(),
-              name: (i['name'] ?? '').toString(),
-              quantity: int.tryParse((i['quantity'] ?? '0').toString()) ?? 0,
-              price: double.tryParse((i['price'] ?? '0').toString()) ?? 0.0,
-            ),
-          )
-          .toList();
-      // Accept multiple possible keys the backend might use for coordinates
-      double? lat = double.tryParse(
-        (e['lat'] ??
-                e['latitude'] ??
-                e['customer_lat'] ??
-                e['customerLat'] ??
-                e['dest_lat'] ??
-                e['destination_lat'] ??
-                '')
-            .toString(),
-      );
-      double? lng = double.tryParse(
-        (e['lng'] ??
-                e['lon'] ??
-                e['longitude'] ??
-                e['customer_lng'] ??
-                e['customerLng'] ??
-                e['dest_lng'] ??
-                e['destination_lng'] ??
-                '')
-            .toString(),
-      );
-      if (lat != null && lat == 0) lat = null; // treat 0 as missing
-      if (lng != null && lng == 0) lng = null;
-      // Capture order type under multiple naming conventions
-      final orderType =
-          (e['order_type'] ??
-                  e['orderType'] ??
-                  e['type'] ??
-                  e['Order_Type'] ??
-                  e['OrderType'] ??
-                  'Delivery')
-              .toString();
-      return DeliveryOrder(
-        id: (e['id'] ?? '').toString(),
-        customerName: (e['customerName'] ?? '').toString(),
-        customerPhone: (e['customerPhone'] ?? '').toString(),
-        deliveryAddress: (e['deliveryAddress'] ?? '').toString(),
-        deliveryInstructions: (e['deliveryInstructions'])?.toString(),
-        latitude: lat,
-        longitude: lng,
-        orderType: orderType,
-        items: items,
-        totalAmount:
-            double.tryParse((e['totalAmount'] ?? '0').toString()) ?? 0.0,
-        estimatedTime: (e['estimatedTime'] ?? '').toString(),
-        status: _mapStatus((e['status'] ?? 'assigned').toString()),
-        paymentStatus: (e['paymentStatus'] ?? '').toString(),
-        paymentMethod:
-            (e['paymentMethod'] ?? e['payment_method'] ?? '').toString().isEmpty
-            ? null
-            : (e['paymentMethod'] ?? e['payment_method']).toString(),
-        createdAt: _safeDate(e['createdAt']) ?? DateTime.now(),
-        pickedUpAt: _safeDate(e['pickedUpAt']),
-        deliveredAt: _safeDate(e['deliveredAt']),
-      );
-    }).toList();
+    return list
+        .map<DeliveryOrder>((e) => parseOrder(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  // Convert a raw map (from JSON) into a DeliveryOrder instance.
+  DeliveryOrder parseOrder(Map<String, dynamic> e) {
+    final items = (e['items'] as List? ?? [])
+        .map<DeliveryItem>(
+          (i) => DeliveryItem(
+            id: (i['id'] ?? '').toString(),
+            name: (i['name'] ?? '').toString(),
+            quantity: int.tryParse((i['quantity'] ?? '0').toString()) ?? 0,
+            price: double.tryParse((i['price'] ?? '0').toString()) ?? 0.0,
+          ),
+        )
+        .toList();
+    double? lat = double.tryParse(
+      (e['lat'] ??
+              e['latitude'] ??
+              e['customer_lat'] ??
+              e['customerLat'] ??
+              e['dest_lat'] ??
+              e['destination_lat'] ??
+              '')
+          .toString(),
+    );
+    double? lng = double.tryParse(
+      (e['lng'] ??
+              e['lon'] ??
+              e['longitude'] ??
+              e['customer_lng'] ??
+              e['customerLng'] ??
+              e['dest_lng'] ??
+              e['destination_lng'] ??
+              '')
+          .toString(),
+    );
+    if (lat != null && lat == 0) lat = null;
+    if (lng != null && lng == 0) lng = null;
+    final orderType =
+        (e['order_type'] ?? e['orderType'] ?? e['type'] ?? 'Delivery')
+            .toString();
+    return DeliveryOrder(
+      id: (e['id'] ?? '').toString(),
+      customerName: (e['customerName'] ?? '').toString(),
+      customerPhone: (e['customerPhone'] ?? '').toString(),
+      deliveryAddress: (e['deliveryAddress'] ?? '').toString(),
+      deliveryInstructions: (e['deliveryInstructions'])?.toString(),
+      latitude: lat,
+      longitude: lng,
+      orderType: orderType,
+      items: items,
+      totalAmount: double.tryParse((e['totalAmount'] ?? '0').toString()) ?? 0.0,
+      estimatedTime: (e['estimatedTime'] ?? '').toString(),
+      status: _mapStatus((e['status'] ?? 'assigned').toString()),
+      paymentStatus: (e['paymentStatus'] ?? '').toString(),
+      paymentMethod:
+          (e['paymentMethod'] ?? e['payment_method'] ?? '').toString().isEmpty
+          ? null
+          : (e['paymentMethod'] ?? e['payment_method']).toString(),
+      createdAt: _safeDate(e['createdAt']) ?? DateTime.now(),
+      pickedUpAt: _safeDate(e['pickedUpAt']),
+      deliveredAt: _safeDate(e['deliveredAt']),
+    );
   }
 
   Future<bool> updateOrderStatus(
@@ -450,6 +458,50 @@ class DeliveryApi {
             lower['token_expires'],
       ),
     );
+  }
+
+  // Fetch lightweight changes since a given ISO timestamp (UTC). Returns null on empty/error.
+  Future<OrdersChanges?> fetchChanges({String? lastUpdate}) async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) return null;
+    final uri = Uri.parse(
+      API.ordersChanges +
+          (lastUpdate != null
+              ? '?since=${Uri.encodeComponent(lastUpdate)}'
+              : ''),
+    );
+    final res = await http
+        .get(
+          uri,
+          headers: {
+            'Accept': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+        )
+        .timeout(const Duration(seconds: 15));
+
+    if (res.statusCode == 401) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('token');
+      } catch (_) {}
+      throw UnauthorizedException('Unauthorized');
+    }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      _logger.fine('fetchChanges http ${res.statusCode} ${res.body}');
+      return null;
+    }
+    final body = json.decode(res.body);
+    if (body is Map && body['ok'] == true) {
+      return OrdersChanges(
+        lastUpdate: body['last_update']?.toString(),
+        newCount: int.tryParse((body['new_count'] ?? 0).toString()) ?? 0,
+        orders: (body['orders'] is List)
+            ? List<dynamic>.from(body['orders'])
+            : [],
+      );
+    }
+    return null;
   }
 
   // Cash summary model

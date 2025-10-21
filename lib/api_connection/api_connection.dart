@@ -32,6 +32,7 @@ class API {
   static String get login => "$hostConnectDriver/login.php";
   // driver endpoints
   static String get orders => "$hostConnectDriver/orders.php";
+  static String get ordersChanges => "$hostConnectDriver/orders_changes.php";
   static String get updateStatus => "$hostConnectDriver/update_status.php";
   static String get profile => "$hostConnectDriver/profile.php";
   static String get updateProfile => "$hostConnectDriver/update_profile.php";
